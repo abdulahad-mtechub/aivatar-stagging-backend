@@ -38,6 +38,42 @@ CREATE INDEX IF NOT EXISTS idx_posts_user_id ON posts(user_id);
 CREATE INDEX IF NOT EXISTS idx_posts_deleted_at ON posts(deleted_at);
 CREATE INDEX IF NOT EXISTS idx_posts_created_at ON posts(created_at);
 
+-- Goals reference table (used by profiles)
+CREATE TABLE IF NOT EXISTS goals (
+  id SERIAL PRIMARY KEY,
+  title VARCHAR(255) NOT NULL,
+  description TEXT,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  deleted_at TIMESTAMP
+);
+
+-- Create indexes for goals table
+CREATE INDEX IF NOT EXISTS idx_goals_deleted_at ON goals(deleted_at);
+
+-- Profiles table (1-to-1 with users)
+CREATE TABLE IF NOT EXISTS profiles (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  profile_image TEXT,                          -- Cloudinary URL (frontend uploads, passes URL here)
+  reminder TEXT,                               -- Reminder message or schedule for the user
+  plan_key VARCHAR(100),                       -- Subscription / plan identifier
+  goal_id INTEGER REFERENCES goals(id) ON DELETE SET NULL,  -- FK to goals table
+  mentor_gender VARCHAR(20),                   -- Preferred mentor gender (e.g. 'male', 'female', 'any')
+  gender VARCHAR(20),                          -- User's own gender (e.g. 'male', 'female', 'non-binary')
+  qa_list JSONB DEFAULT '[]'::jsonb,           -- Array of {question, answer} objects
+  job_type VARCHAR(100),                       -- User's job type / occupation
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  deleted_at TIMESTAMP,
+  CONSTRAINT uq_profiles_user_id UNIQUE (user_id)
+);
+
+-- Create indexes for profiles table
+CREATE INDEX IF NOT EXISTS idx_profiles_user_id ON profiles(user_id);
+CREATE INDEX IF NOT EXISTS idx_profiles_goal_id ON profiles(goal_id);
+CREATE INDEX IF NOT EXISTS idx_profiles_deleted_at ON profiles(deleted_at);
+
 -- ==========================================
 -- Initial Admin User (optional)
 -- Password: admin123 (change after first login)
