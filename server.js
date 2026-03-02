@@ -4,7 +4,7 @@ const app = require("./src/app");
 const logger = require("./src/utils/logger");
 
 // Get port from environment or use default
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 4000;
 
 // Create HTTP server
 const server = http.createServer(app);
