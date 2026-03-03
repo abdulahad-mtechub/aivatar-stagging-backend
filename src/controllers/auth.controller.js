@@ -51,6 +51,75 @@ exports.register = asyncHandler(async (req, res, next) => {
 });
 
 /**
+ * Resend OTP to user email
+ */
+exports.resendOtp = asyncHandler(async (req, res, next) => {
+  const { email } = req.body;
+
+  if (!email) return next(new AppError("Please provide email", 400));
+
+  try {
+    const result = await AuthService.resendOtp(email);
+
+    return apiResponse(res, 200, "OTP resent successfully", result);
+  } catch (error) {
+    return next(new AppError(error.message, 400));
+  }
+});
+
+/**
+ * Verify OTP
+ */
+exports.verifyOtp = asyncHandler(async (req, res, next) => {
+  const { email, otp } = req.body;
+
+  if (!email || !otp) return next(new AppError("Please provide email and otp", 400));
+
+  try {
+    const result = await AuthService.verifyOtp(email, otp);
+
+    return apiResponse(res, 200, "OTP verified successfully", result);
+  } catch (error) {
+    return next(new AppError(error.message, 400));
+  }
+});
+
+/**
+ * Forgot password - send OTP
+ */
+exports.forgotPassword = asyncHandler(async (req, res, next) => {
+  const { email } = req.body;
+
+  if (!email) return next(new AppError("Please provide email", 400));
+
+  try {
+    const result = await AuthService.forgotPassword(email);
+
+    return apiResponse(res, 200, "OTP sent for password reset", result);
+  } catch (error) {
+    return next(new AppError(error.message, 400));
+  }
+});
+
+/**
+ * Reset password using OTP
+ */
+exports.resetPassword = asyncHandler(async (req, res, next) => {
+  const { email, otp, newPassword } = req.body;
+
+  if (!email || !otp || !newPassword)
+    return next(new AppError("Please provide email, otp and newPassword", 400));
+
+  try {
+    const result = await AuthService.resetPassword(email, otp, newPassword);
+
+    return apiResponse(res, 200, "Password reset successfully", result);
+  } catch (error) {
+    return next(new AppError(error.message, 400));
+  }
+});
+
+/**
  * Get current user profile
  */
 exports.getProfile = asyncHandler(async (req, res, next) => {

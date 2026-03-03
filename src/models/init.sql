@@ -14,7 +14,10 @@ CREATE TABLE IF NOT EXISTS users (
   block_status BOOLEAN DEFAULT false,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
-  deleted_at TIMESTAMP
+  deleted_at TIMESTAMP,
+  is_verified BOOLEAN DEFAULT false,
+  otp VARCHAR(10),
+  otp_expires_at TIMESTAMP
 );
 
 -- Create indexes for users table

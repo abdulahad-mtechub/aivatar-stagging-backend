@@ -114,6 +114,63 @@ class UserService {
   }
 
   /**
+   * Set OTP for a user (used for registration/resend)
+   * @param {number} userId
+   * @param {string} otp
+   * @param {Date|string} expiresAt
+   */
+  static async setOtp(userId, otp, expiresAt) {
+    try {
+      const result = await db.query(
+        "UPDATE users SET otp = $1, otp_expires_at = $2, updated_at = NOW() WHERE id = $3 RETURNING *",
+        [otp, expiresAt, userId]
+      );
+
+      return result.rows[0] || null;
+    } catch (error) {
+      logger.error(`Error setting OTP for user: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Mark user as verified and clear OTP
+   * @param {number} userId
+   */
+  static async verify(userId) {
+    try {
+      const result = await db.query(
+        "UPDATE users SET is_verified = true, otp = NULL, otp_expires_at = NULL, updated_at = NOW() WHERE id = $1 RETURNING *",
+        [userId]
+      );
+
+      return result.rows[0] || null;
+    } catch (error) {
+      logger.error(`Error verifying user: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Update a user's password
+   * @param {number} id
+   * @param {string} hashedPassword
+   */
+  static async updatePassword(id, hashedPassword) {
+    try {
+      const result = await db.query(
+        "UPDATE users SET password = $1, otp = NULL, otp_expires_at = NULL, updated_at = NOW() WHERE id = $2 RETURNING *",
+        [hashedPassword, id]
+      );
+
+      return result.rows[0] || null;
+    } catch (error) {
+      logger.error(`Error updating user password: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
    * Delete a user (soft delete)
    * @param {number} id - User ID
    * @returns {Promise<boolean>} Success status
