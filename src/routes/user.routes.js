@@ -7,6 +7,9 @@ const { restrictTo } = require("../middlewares/auth.middleware");
 // All user routes require authentication
 router.use(protect);
 
+// User routes
+router.delete("/me", userController.deleteMe);
+
 // Admin only routes
 router.get("/", restrictTo("admin"), userController.getAllUsers);
 router.get("/:id", restrictTo("admin"), userController.getUserById);

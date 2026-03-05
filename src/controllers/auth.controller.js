@@ -25,6 +25,28 @@ exports.login = asyncHandler(async (req, res, next) => {
 });
 
 /**
+ * Login admin and return JWT token
+ */
+exports.adminLogin = asyncHandler(async (req, res, next) => {
+  const { email, password } = req.body;
+
+  // Validate input
+  if (!email || !password) {
+    return next(new AppError("Please provide email and password", 400));
+  }
+
+  try {
+    // Authenticate admin
+    const result = await AuthService.adminLogin(email, password);
+
+    return apiResponse(res, 200, "Admin login successful", result);
+  } catch (error) {
+    const statusCode = error.message.includes("Access denied") ? 403 : 401;
+    return next(new AppError(error.message, statusCode));
+  }
+});
+
+/**
  * Register a new user
  */
 exports.register = asyncHandler(async (req, res, next) => {

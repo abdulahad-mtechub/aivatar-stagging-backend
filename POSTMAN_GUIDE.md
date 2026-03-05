@@ -106,7 +106,7 @@ The collection uses environment variables for:
 
 #### 4. Login Admin
 - **Method:** `POST`
-- **URL:** `/api/auth/login`
+- **URL:** `/api/auth/admin/login`
 - **Auth:** Not required
 - **Body:**
 ```json
@@ -174,6 +174,43 @@ The collection uses environment variables for:
 - **URL:** `/api/users/:id`
 - **Auth:** Required (Admin Bearer Token)
 - **Response:** Success message
+
+---
+
+### 👤 User Endpoints
+
+#### 1. Delete My Account
+- **Method:** `DELETE`
+- **URL:** `/api/users/me`
+- **Auth:** Required (Bearer Token)
+- **Response:** Success message
+- **Note:** This will soft-delete your own account.
+
+---
+
+### 📄 Content Management Endpoints
+
+#### 1. Upsert Content (Admin Only)
+- **Method:** `POST`
+- **URL:** `/api/content`
+- **Auth:** Required (Admin Bearer Token)
+- **Body:**
+```json
+{
+    "type": "privacy_policy",
+    "content": "Our privacy policy text...",
+    "status": true
+}
+```
+- **Response:** Upserted content record
+- **Note:** Creates record if `type` is new, updates existing if it exists.
+
+#### 2. Get Content By Type
+- **Method:** `GET`
+- **URL:** `/api/content/:type`
+- **Auth:** Not required (Public)
+- **Example:** `/api/content/privacy_policy`
+- **Response:** Content record
 
 ---
 

@@ -60,6 +60,17 @@ exports.updateUser = asyncHandler(async (req, res, next) => {
 });
 
 /**
+ * Delete own account (soft delete)
+ */
+exports.deleteMe = asyncHandler(async (req, res, next) => {
+  const userId = req.user.id;
+
+  await UserService.delete(userId);
+
+  return apiResponse(res, 200, "Your account has been deleted successfully");
+});
+
+/**
  * Delete user (soft delete)
  */
 exports.deleteUser = asyncHandler(async (req, res, next) => {

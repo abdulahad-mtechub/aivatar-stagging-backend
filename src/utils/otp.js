@@ -26,32 +26,48 @@ async function sendOtp({ to, otp }) {
   const text = `Hello,\n\nYour ${appName} verification code is: ${otp}\n\nThis code will expire in ${expiryMinutes} minutes. If you did not request this, please ignore this message or contact ${supportEmail}.\n\nThanks,\nThe ${appName} Team`;
 
   const html = `
-  <div style="font-family: Arial, sans-serif; color: #222;">
-    <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+  <div style="font-family: 'Arial', sans-serif; background:#111111; margin:0; padding:0;">
+    <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#111111;">
       <tr>
-        <td align="center" style="padding:20px 0;">
-          <div style="max-width:600px;width:100%;border:1px solid #e9e9e9;border-radius:8px;overflow:hidden;">
-            <div style="background:#0b74de;padding:18px 24px;color:#fff;text-align:left;">
-              <h1 style="margin:0;font-size:20px;font-weight:600;">${appName}</h1>
-            </div>
-            <div style="padding:32px 24px;background:#fff;">
-              <p style="margin:0 0 16px 0;font-size:15px;">Hello,</p>
-              <p style="margin:0 0 24px 0;font-size:15px;color:#555;">Use the verification code below to continue. This code will expire in <strong>${expiryMinutes} minutes</strong>.</p>
+        <td align="center" style="padding:32px 16px;">
+          <div style="max-width:580px;width:100%;background:#1a1a1a;border-radius:16px;overflow:hidden;border:1px solid #2a2a2a;">
 
-              <div style="text-align:center;margin:18px 0;">
-                <div style="display:inline-flex;gap:12px;align-items:center;justify-content:center;background:#ffffff;border:1px solid #e6eefc;padding:14px 20px;border-radius:12px;box-shadow:0 1px 4px rgba(11,116,222,0.06);">
-                  ${otp.split('').map(d => `
-                    <span style="display:inline-block;width:50px;height:50px;line-height:50px;background:#f0f8ff;border:1px solid #dfe9f6;border-radius:8px;font-weight:800;font-size:24px;color:#0b74de;text-align:center;font-family: 'Courier New', monospace;">${d}</span>
-                  `).join('')}
+            <!-- Header -->
+            <div style="background:#1a1a1a;padding:28px 32px 20px 32px;border-bottom:1px solid #2a2a2a;text-align:center;">
+              <img src="https://res.cloudinary.com/djvoptc2y/image/upload/f_png/v1772540418/fto3jlcer8v1bosqtzar.png" alt="${appName}" style="height:120px; width:auto; display:block; margin:0 auto; border:0; max-width:100%;">
+              <p style="margin:6px 0 0 0;font-size:12px;color:#666;letter-spacing:2px;text-transform:uppercase;">Verification</p>
+            </div>
+
+            <!-- Body -->
+            <div style="padding:36px 32px;">
+              <p style="margin:0 0 12px 0;font-size:16px;color:#ffffff;font-weight:600;">Verify Your Identity</p>
+              <p style="margin:0 0 28px 0;font-size:14px;color:#999999;line-height:1.6;">
+                Use the one-time code below to complete your verification. This code expires in <strong style="color:#F5A623;">${expiryMinutes} minutes</strong>.
+              </p>
+
+              <!-- OTP digits -->
+              <div style="text-align:center;margin:24px 0;">
+                <div style="display:inline-block;background:#111111;border:1px solid #2e2e2e;padding:20px 28px;border-radius:14px;">
+                  <div style="display:flex;gap:10px;align-items:center;justify-content:center;">
+                    ${otp.split('').map(d => `<span style="display:inline-block;width:52px;height:56px;line-height:56px;background:#222222;border:2px solid #F5A623;border-radius:10px;font-weight:800;font-size:26px;color:#F5A623;text-align:center;font-family:'Courier New',monospace;letter-spacing:0;">${d}</span>`).join('<span style="color:#555;font-size:20px;margin:0 2px;">&#8203;</span>')}
+                  </div>
                 </div>
               </div>
 
-              ${frontendVerifyUrl ? `<p style="text-align:center;margin:18px 0;"><a href="${frontendVerifyUrl}" style="background:#0b74de;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;display:inline-block;">Verify account</a></p>` : ''}
+              ${frontendVerifyUrl ? `
+              <div style="text-align:center;margin:28px 0 20px 0;">
+                <a href="${frontendVerifyUrl}" style="background:#F5A623;color:#111111;padding:13px 36px;border-radius:8px;text-decoration:none;display:inline-block;font-weight:700;font-size:14px;letter-spacing:0.5px;">Verify Account</a>
+              </div>` : ''}
 
-              <p style="margin:22px 0 0 0;font-size:13px;color:#888;">If you did not request this code, you can safely ignore this email.</p>
-              <p style="margin:8px 0 0 0;font-size:13px;color:#888;">Need help? Contact us at <a href="mailto:${supportEmail}" style="color:#0b74de;text-decoration:none;">${supportEmail}</a>.</p>
+              <p style="margin:24px 0 0 0;font-size:12px;color:#555555;text-align:center;">If you did not request this code, you can safely ignore this email.</p>
+              <p style="margin:8px 0 0 0;font-size:12px;color:#555555;text-align:center;">Need help? <a href="mailto:${supportEmail}" style="color:#F5A623;text-decoration:none;">${supportEmail}</a></p>
             </div>
-            <div style="background:#fafafa;padding:12px 24px;text-align:center;color:#9aa3ad;font-size:12px;">© ${new Date().getFullYear()} ${appName}. All rights reserved.</div>
+
+            <!-- Footer -->
+            <div style="background:#111111;padding:16px 32px;text-align:center;border-top:1px solid #2a2a2a;">
+              <p style="margin:0;font-size:11px;color:#444444;">© ${new Date().getFullYear()} ${appName}. All rights reserved.</p>
+            </div>
+
           </div>
         </td>
       </tr>

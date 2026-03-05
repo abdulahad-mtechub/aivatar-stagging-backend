@@ -77,15 +77,72 @@ CREATE INDEX IF NOT EXISTS idx_profiles_user_id ON profiles(user_id);
 CREATE INDEX IF NOT EXISTS idx_profiles_goal_id ON profiles(goal_id);
 CREATE INDEX IF NOT EXISTS idx_profiles_deleted_at ON profiles(deleted_at);
 
+-- Content Management table (Privacy Policy, Terms & Conditions, etc.)
+CREATE TABLE IF NOT EXISTS contentmanagement (
+  id SERIAL PRIMARY KEY,
+  type VARCHAR(50) UNIQUE NOT NULL, -- 'privacy_policy', 'terms_conditions'
+  content TEXT NOT NULL,
+  status BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Create indexes for contentmanagement table
+CREATE INDEX IF NOT EXISTS idx_contentmanagement_type ON contentmanagement(type);
+CREATE INDEX IF NOT EXISTS idx_contentmanagement_status ON contentmanagement(status);
+
+
+-- ==========================================
+-- Meal Management System (Hierarchical)
+-- ==========================================
+
+-- 1. Energy (Nutrients)
+CREATE TABLE IF NOT EXISTS meal_energy (
+  id SERIAL PRIMARY KEY,
+  calories INTEGER DEFAULT 0,
+  protein FLOAT DEFAULT 0.0,
+  carbs FLOAT DEFAULT 0.0,
+  fats FLOAT DEFAULT 0.0,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 2. Meals Library
+CREATE TABLE IF NOT EXISTS meals (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  energy_id INTEGER REFERENCES meal_energy(id) ON DELETE SET NULL,
+  title VARCHAR(255) NOT NULL,
+  preparation_time VARCHAR(50), -- e.g. '15 min'
+  complexity VARCHAR(50),      -- e.g. 'Easy', 'Medium', 'Hard'
+  image_url TEXT,
+  category VARCHAR(50),         -- e.g. 'Breakfast', 'Lunch'
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 3. Flat Meal Plans Table
+-- Each row = one meal slot for a user on a specific week/day
+CREATE TABLE IF NOT EXISTS meal_plans (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  meal_id INTEGER REFERENCES meals(id) ON DELETE SET NULL,
+  week_number INTEGER NOT NULL DEFAULT 1,  -- e.g. 1, 2, 3, 4
+  day_of_week INTEGER NOT NULL CHECK (day_of_week BETWEEN 1 AND 7), -- 1=Mon, 7=Sun
+  plan_date DATE,                           -- Optional: specific calendar date
+  slot_type VARCHAR(20) NOT NULL,           -- 'breakfast', 'lunch', 'dinner', 'snack'
+  status VARCHAR(20) DEFAULT 'pending',     -- 'pending', 'completed', 'skipped'
+  is_skipped BOOLEAN DEFAULT false,
+  is_swapped BOOLEAN DEFAULT false,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_meal_plans_user_id ON meal_plans(user_id);
+CREATE INDEX IF NOT EXISTS idx_meal_plans_week_day ON meal_plans(user_id, week_number, day_of_week);
+
+
 -- ==========================================
 -- Initial Admin User (optional)
--- Password: admin123 (change after first login)
 -- ==========================================
--- INSERT INTO users (name, email, password, role) 
--- VALUES (
---   'Admin User',
---   'admin@example.com',
---   '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5GyYqJ5q5q5q5', -- bcrypt hash of 'admin123'
---   'admin'
--- );
 

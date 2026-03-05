@@ -25,6 +25,25 @@ class UserService {
   }
 
   /**
+   * Find any user by email (including soft-deleted)
+   * @param {string} email - User's email address
+   * @returns {Promise<object|null>} User object or null if not found
+   */
+  static async findAnyByEmail(email) {
+    try {
+      const result = await db.query(
+        "SELECT * FROM users WHERE email = $1",
+        [email]
+      );
+
+      return result.rows[0] || null;
+    } catch (error) {
+      logger.error(`Error finding any user by email: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
    * Find a user by ID
    * @param {number} id - User ID
    * @returns {Promise<object|null>} User object or null if not found
@@ -199,6 +218,11 @@ class UserService {
     const offset = (page - 1) * limit;
 
     try {
+      // PERMANENTLY DELETE EXPIRED ACCOUNTS (> 90 days)
+      await db.query(
+        "DELETE FROM users WHERE deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '90 days'"
+      );
+
       // Get total count
       const countResult = await db.query(
         "SELECT COUNT(*) FROM users WHERE deleted_at IS NULL"

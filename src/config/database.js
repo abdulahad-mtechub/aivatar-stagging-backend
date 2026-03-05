@@ -33,11 +33,11 @@ async function initializeDatabase() {
     const initSqlPath = path.join(__dirname, "../models/init.sql");
     const initSql = fs.readFileSync(initSqlPath, "utf8");
 
-    // Split SQL statements by semicolon and filter out empty/comment-only statements
+    // Split SQL statements by semicolon and filter out empty statements
     const statements = initSql
       .split(';')
       .map(stmt => stmt.trim())
-      .filter(stmt => stmt.length > 0 && !stmt.startsWith('--'));
+      .filter(stmt => stmt.length > 0);
 
     // Execute each statement
     for (const statement of statements) {

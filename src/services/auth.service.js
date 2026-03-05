@@ -53,6 +53,54 @@ class AuthService {
   }
 
   /**
+   * Authenticate an admin and generate tokens
+   * @param {string} email - Admin email
+   * @param {string} password - Admin password
+   * @returns {Promise<object>} Admin info and tokens
+   */
+  static async adminLogin(email, password) {
+    try {
+      // Find user by email
+      const user = await UserService.findByEmail(email);
+
+      if (!user) {
+        throw new Error("Invalid credentials");
+      }
+
+      // Check if user is admin
+      if (user.role !== "admin") {
+        throw new Error("Access denied. Admin privileges required.");
+      }
+
+      // Check if user is blocked
+      if (user.block_status) {
+        throw new Error("Your account has been blocked");
+      }
+
+      // Compare passwords
+      const passwordMatch = await bcrypt.compare(password, user.password);
+
+      if (!passwordMatch) {
+        throw new Error("Invalid credentials");
+      }
+
+      // Generate tokens
+      const accessToken = this.generateAccessToken(user);
+
+      // Remove password from user object
+      const { password: _, ...userWithoutPassword } = user;
+
+      return {
+        user: userWithoutPassword,
+        token: accessToken,
+      };
+    } catch (error) {
+      logger.error(`Admin login error: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
    * Register a new user
    * @param {object} userData - User registration data
    * @returns {Promise<object>} User info and token
@@ -61,11 +109,29 @@ class AuthService {
     try {
       const { name, email, password, role = "user" } = userData;
 
-      // Check if email already exists
-      const existingUser = await UserService.findByEmail(email);
+      // Check if email already exists (including soft-deleted)
+      const anyUser = await UserService.findAnyByEmail(email);
 
-      if (existingUser) {
-        throw new Error("Email already in use");
+      if (anyUser) {
+        if (!anyUser.deleted_at) {
+          throw new Error("Email already in use");
+        }
+
+        // Check if deleted within 90 days
+        const deletedAt = new Date(anyUser.deleted_at);
+        const now = new Date();
+        const diffTime = Math.abs(now - deletedAt);
+        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+        const daysRemaining = 90 - diffDays;
+
+        if (daysRemaining > 0) {
+          throw new Error(`You cannot register. Account was recently deleted. ${daysRemaining} days remaining until permanent deletion.`);
+        }
+
+        // If more than 90 days, we should theoretically have cleaned it up, 
+        // but if not, we can either re-activate or let the previous code handle it.
+        // For simplicity, we'll assume the cleanup handles it or just treat it as "Email already in use" if not cleaned.
+        throw new Error("Email already in use (pending permanent deletion)");
       }
 
       // Hash password
