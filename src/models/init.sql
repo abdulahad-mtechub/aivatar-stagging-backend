@@ -143,6 +143,176 @@ CREATE INDEX IF NOT EXISTS idx_meal_plans_week_day ON meal_plans(user_id, week_n
 
 
 -- ==========================================
+-- Contact Us Module
+-- ==========================================
+
+CREATE TABLE IF NOT EXISTS contact_us (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  email VARCHAR(255) NOT NULL,
+  query TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  deleted_at TIMESTAMP
+);
+
+-- Create indexes for contact_us table
+CREATE INDEX IF NOT EXISTS idx_contact_us_email ON contact_us(email);
+CREATE INDEX IF NOT EXISTS idx_contact_us_deleted_at ON contact_us(deleted_at);
+
+
+-- ==========================================
+-- Workout Module
+-- ==========================================
+
+-- 1. Exercises Library
+CREATE TABLE IF NOT EXISTS exercises (
+  id SERIAL PRIMARY KEY,
+  title VARCHAR(255) NOT NULL,
+  description TEXT,
+  media_url TEXT,
+  audio_url TEXT,
+  instructions JSONB DEFAULT '{}'::jsonb,
+  category VARCHAR(50),
+  target_muscle_group VARCHAR(100),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  deleted_at TIMESTAMP
+);
+
+-- 2. Workout Templates
+CREATE TABLE IF NOT EXISTS workouts (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  duration_minutes INTEGER,
+  difficulty VARCHAR(50),
+  thumbnail_url TEXT,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  deleted_at TIMESTAMP
+);
+
+-- 3. Workout Exercises (Junction Table)
+CREATE TABLE IF NOT EXISTS workout_exercises (
+  id SERIAL PRIMARY KEY,
+  workout_id INTEGER REFERENCES workouts(id) ON DELETE CASCADE,
+  exercise_id INTEGER REFERENCES exercises(id) ON DELETE CASCADE,
+  sequence_order INTEGER NOT NULL,
+  default_sets INTEGER DEFAULT 3,
+  default_reps INTEGER DEFAULT 10,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 4. User Workout Sessions (Logging)
+CREATE TABLE IF NOT EXISTS user_workout_sessions (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  workout_id INTEGER REFERENCES workouts(id) ON DELETE SET NULL,
+  start_time TIMESTAMP DEFAULT NOW(),
+  end_time TIMESTAMP,
+  status VARCHAR(20) DEFAULT 'active',
+  total_volume FLOAT DEFAULT 0,
+  calories_burned INTEGER DEFAULT 0,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 5. Workout Sets (Detailed Logs)
+CREATE TABLE IF NOT EXISTS workout_sets (
+  id SERIAL PRIMARY KEY,
+  session_id INTEGER REFERENCES user_workout_sessions(id) ON DELETE CASCADE,
+  exercise_id INTEGER REFERENCES exercises(id) ON DELETE CASCADE,
+  set_number INTEGER NOT NULL,
+  target_reps INTEGER,
+  target_weight FLOAT,
+  actual_reps INTEGER,
+  actual_weight FLOAT,
+  rest_time_seconds INTEGER,
+  is_completed BOOLEAN DEFAULT false,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Create indexes for workout tables
+CREATE INDEX IF NOT EXISTS idx_exercises_category ON exercises(category);
+CREATE INDEX IF NOT EXISTS idx_workout_exercises_workout_id ON workout_exercises(workout_id);
+CREATE INDEX IF NOT EXISTS idx_user_workout_sessions_user_id ON user_workout_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_workout_sets_session_id ON workout_sets(session_id);
+
+
+-- ==========================================
 -- Initial Admin User (optional)
 -- ==========================================
 
+
+-- ==========================================
+-- Coins, Rewards & Badge System
+-- ==========================================
+
+-- 1. Reward Management (Rule Engine)
+CREATE TABLE IF NOT EXISTS reward_management (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  description TEXT,
+  module_type VARCHAR(50),
+  trigger_event VARCHAR(100),
+  reward_type VARCHAR(50),
+  type VARCHAR(50) DEFAULT 'generic',
+  points_amount INTEGER NOT NULL DEFAULT 10 CHECK (points_amount >= 10),
+  frequency_limit VARCHAR(50),
+  events_per_day INTEGER DEFAULT 1,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 2. User Earned Reward Points (Earnings Log)
+CREATE TABLE IF NOT EXISTS user_earned_reward_points (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  rule_id INTEGER NOT NULL REFERENCES reward_management(id) ON DELETE CASCADE,
+  module_type VARCHAR(50),
+  point_earned_date TIMESTAMP DEFAULT NOW(),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 3. Redeem Coin History (Redemptions Log)
+CREATE TABLE IF NOT EXISTS redeem_coin_history (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  rule_id INTEGER NOT NULL REFERENCES reward_management(id) ON DELETE CASCADE,
+  module_type VARCHAR(50),
+  point_redem_date TIMESTAMP DEFAULT NOW(),
+  redeem_code VARCHAR(50) UNIQUE NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 4. Points Transaction (Consolidated Audit Log)
+CREATE TABLE IF NOT EXISTS points_transaction (
+  id SERIAL PRIMARY KEY,
+  type VARCHAR(20) NOT NULL CHECK (type IN ('earned', 'redeemed')),
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  rule_id INTEGER NOT NULL REFERENCES reward_management(id) ON DELETE CASCADE,
+  points_amount INTEGER NOT NULL DEFAULT 0,
+  module_type VARCHAR(50),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 5. Badges Table
+CREATE TABLE IF NOT EXISTS badges (
+  id SERIAL PRIMARY KEY,
+  title VARCHAR(100) NOT NULL,
+  max_points INTEGER NOT NULL,
+  badge_image TEXT,
+  color VARCHAR(50),
+  color_value VARCHAR(20),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Indexes for coins/badges tables
+CREATE INDEX IF NOT EXISTS idx_user_earned_user_id ON user_earned_reward_points(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_earned_rule_id ON user_earned_reward_points(rule_id);
+CREATE INDEX IF NOT EXISTS idx_redeem_user_id ON redeem_coin_history(user_id);
+CREATE INDEX IF NOT EXISTS idx_points_tx_user_id ON points_transaction(user_id);
+CREATE INDEX IF NOT EXISTS idx_points_tx_type ON points_transaction(type);
+CREATE INDEX IF NOT EXISTS idx_badges_max_points ON badges(max_points);
