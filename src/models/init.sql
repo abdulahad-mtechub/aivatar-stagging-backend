@@ -314,6 +314,8 @@ CREATE TABLE IF NOT EXISTS badges (
 CREATE TABLE IF NOT EXISTS user_streaks (
   id SERIAL PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  rule_id INTEGER REFERENCES reward_management(id) ON DELETE SET NULL,
+  activity_type VARCHAR(50) DEFAULT 'general', -- e.g. 'workout', 'meal', 'general'
   steak_added_date TIMESTAMP DEFAULT NOW(),
   is_streak INTEGER DEFAULT 1, -- 1 for active, 0 for expired
   is_restored BOOLEAN DEFAULT FALSE,
