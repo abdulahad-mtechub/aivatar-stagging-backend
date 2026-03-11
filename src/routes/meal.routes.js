@@ -7,6 +7,8 @@ const { protect } = require("../middlewares/auth.middleware");
 router.use(protect);
 
 router.get("/", mealController.getMeals);
+router.get("/grouped", mealController.getMealsGrouped);
+router.get("/category/:category", mealController.getMealsByCategory);
 router.get("/:id", mealController.getMealDetails);
 router.post("/", mealController.createMeal);
 

@@ -17,11 +17,16 @@ class AuthService {
    */
   static async login(email, password) {
     try {
-      // Find user by email
-      const user = await UserService.findByEmail(email);
+      // Find user by email (including soft-deleted)
+      const user = await UserService.findAnyByEmail(email);
 
       if (!user) {
         throw new Error("Invalid credentials");
+      }
+
+      // Check if user is deleted
+      if (user.deleted_at) {
+        throw new Error("Your account has been deleted");
       }
 
       // Check if user is blocked
@@ -34,6 +39,11 @@ class AuthService {
 
       if (!passwordMatch) {
         throw new Error("Invalid credentials");
+      }
+
+      // Check if user is verified
+      if (!user.is_verified) {
+        throw new Error("Please verify your account first");
       }
 
       // Generate tokens
@@ -60,11 +70,16 @@ class AuthService {
    */
   static async adminLogin(email, password) {
     try {
-      // Find user by email
-      const user = await UserService.findByEmail(email);
+      // Find user by email (including soft-deleted)
+      const user = await UserService.findAnyByEmail(email);
 
       if (!user) {
         throw new Error("Invalid credentials");
+      }
+
+      // Check if user is deleted
+      if (user.deleted_at) {
+        throw new Error("Your account has been deleted");
       }
 
       // Check if user is admin
@@ -82,6 +97,11 @@ class AuthService {
 
       if (!passwordMatch) {
         throw new Error("Invalid credentials");
+      }
+
+      // Check if user is verified
+      if (!user.is_verified) {
+        throw new Error("Please verify your account first");
       }
 
       // Generate tokens

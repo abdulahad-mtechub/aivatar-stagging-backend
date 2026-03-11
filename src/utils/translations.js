@@ -65,6 +65,10 @@ const translations = {
     en: "Your account has been blocked",
     es: "Tu cuenta ha sido bloqueada"
   },
+  "Your account has been deleted": {
+    en: "Your account has been deleted",
+    es: "Tu cuenta ha sido eliminada"
+  },
 
   // CRUD messages
   "Resource created successfully": {

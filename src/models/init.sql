@@ -112,6 +112,7 @@ CREATE TABLE IF NOT EXISTS meals (
   user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
   energy_id INTEGER REFERENCES meal_energy(id) ON DELETE SET NULL,
   title VARCHAR(255) NOT NULL,
+  description TEXT,
   preparation_time VARCHAR(50), -- e.g. '15 min'
   complexity VARCHAR(50),      -- e.g. 'Easy', 'Medium', 'Hard'
   image_url TEXT,
@@ -309,10 +310,23 @@ CREATE TABLE IF NOT EXISTS badges (
   updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- Indexes for coins/badges tables
+-- 6. User Streaks Table
+CREATE TABLE IF NOT EXISTS user_streaks (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  steak_added_date TIMESTAMP DEFAULT NOW(),
+  is_streak INTEGER DEFAULT 1, -- 1 for active, 0 for expired
+  is_restored BOOLEAN DEFAULT FALSE,
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Indexes for coins/badges/streaks tables
 CREATE INDEX IF NOT EXISTS idx_user_earned_user_id ON user_earned_reward_points(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_earned_rule_id ON user_earned_reward_points(rule_id);
 CREATE INDEX IF NOT EXISTS idx_redeem_user_id ON redeem_coin_history(user_id);
 CREATE INDEX IF NOT EXISTS idx_points_tx_user_id ON points_transaction(user_id);
 CREATE INDEX IF NOT EXISTS idx_points_tx_type ON points_transaction(type);
 CREATE INDEX IF NOT EXISTS idx_badges_max_points ON badges(max_points);
+CREATE INDEX IF NOT EXISTS idx_user_streaks_user_id ON user_streaks(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_streaks_is_streak ON user_streaks(is_streak);
+CREATE INDEX IF NOT EXISTS idx_user_streaks_added_date ON user_streaks(steak_added_date);

@@ -9,9 +9,19 @@ class MealService {
    * Create a new meal with nutrition energy
    */
   static async create(userId, mealData) {
-    const { title, image_url, category, preparation_time, complexity, energy } = mealData;
-    
+    const { title, description, image_url, category, preparation_time, complexity, energy } = mealData;
+
     try {
+      // Check for duplicate meal (same title + category for this user)
+      const duplicate = await db.query(
+        "SELECT id FROM meals WHERE user_id = $1 AND LOWER(title) = LOWER($2) AND LOWER(category) = LOWER($3)",
+        [userId, title, category]
+      );
+
+      if (duplicate.rows.length > 0) {
+        throw new Error(`A meal with the title "${title}" already exists in the "${category}" category`);
+      }
+
       // 1. Create energy record
       const energyResult = await db.query(
         "INSERT INTO meal_energy (calories, protein, carbs, fats) VALUES ($1, $2, $3, $4) RETURNING id",
@@ -21,8 +31,8 @@ class MealService {
 
       // 2. Create meal record
       const mealResult = await db.query(
-        "INSERT INTO meals (user_id, title, image_url, category, preparation_time, complexity, energy_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *",
-        [userId, title, image_url, category, preparation_time, complexity, energyId]
+        "INSERT INTO meals (user_id, title, description, image_url, category, preparation_time, complexity, energy_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *",
+        [userId, title, description, image_url, category, preparation_time, complexity, energyId]
       );
 
       return mealResult.rows[0];
@@ -38,9 +48,9 @@ class MealService {
   static async findById(id) {
     try {
       const result = await db.query(
-        `SELECT m.*, e.calories, e.protein, e.carbs, e.fats 
-         FROM meals m 
-         LEFT JOIN meal_energy e ON m.energy_id = e.id 
+        `SELECT m.*, e.calories, e.protein, e.carbs, e.fats
+         FROM meals m
+         LEFT JOIN meal_energy e ON m.energy_id = e.id
          WHERE m.id = $1`,
         [id]
       );
@@ -52,14 +62,14 @@ class MealService {
   }
 
   /**
-   * Get all meals for a specific user (Library)
+   * Get all meals for a specific user (flat list)
    */
   static async findAll(userId) {
     try {
       const result = await db.query(
-        `SELECT m.*, e.calories, e.protein, e.carbs, e.fats 
-         FROM meals m 
-         LEFT JOIN meal_energy e ON m.energy_id = e.id 
+        `SELECT m.*, e.calories, e.protein, e.carbs, e.fats
+         FROM meals m
+         LEFT JOIN meal_energy e ON m.energy_id = e.id
          WHERE m.user_id = $1
          ORDER BY m.created_at DESC`,
         [userId]
@@ -67,6 +77,55 @@ class MealService {
       return result.rows;
     } catch (error) {
       logger.error(`Error finding all meals: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all meals grouped by category
+   */
+  static async findAllGrouped(userId) {
+    try {
+      const result = await db.query(
+        `SELECT m.*, e.calories, e.protein, e.carbs, e.fats
+         FROM meals m
+         LEFT JOIN meal_energy e ON m.energy_id = e.id
+         WHERE m.user_id = $1
+         ORDER BY m.category ASC, m.created_at DESC`,
+        [userId]
+      );
+
+      // Group meals by category key
+      const grouped = result.rows.reduce((acc, meal) => {
+        const cat = meal.category || "Uncategorized";
+        if (!acc[cat]) acc[cat] = [];
+        acc[cat].push(meal);
+        return acc;
+      }, {});
+
+      return grouped;
+    } catch (error) {
+      logger.error(`Error finding grouped meals: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Get meals filtered by a specific category
+   */
+  static async findByCategory(userId, category) {
+    try {
+      const result = await db.query(
+        `SELECT m.*, e.calories, e.protein, e.carbs, e.fats
+         FROM meals m
+         LEFT JOIN meal_energy e ON m.energy_id = e.id
+         WHERE m.user_id = $1 AND LOWER(m.category) = LOWER($2)
+         ORDER BY m.created_at DESC`,
+        [userId, category]
+      );
+      return result.rows;
+    } catch (error) {
+      logger.error(`Error finding meals by category: ${error.message}`);
       throw error;
     }
   }

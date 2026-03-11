@@ -12,6 +12,7 @@ const workoutRoutes = require("./workout.routes");
 const rewardRoutes = require("./reward.routes");
 const redeemRoutes = require("./redeem.routes");
 const badgeRoutes = require("./badge.routes");
+const streakRoutes = require("./streak.routes");
 
 // Mount route modules
 router.use("/auth", authRoutes);
@@ -26,6 +27,7 @@ router.use("/workouts", workoutRoutes);
 router.use("/rewards", rewardRoutes);
 router.use("/redeem", redeemRoutes);
 router.use("/badges", badgeRoutes);
+router.use("/streaks", streakRoutes);
 
 module.exports = router;
 

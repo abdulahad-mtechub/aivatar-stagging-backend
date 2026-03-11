@@ -56,22 +56,58 @@ class MealPlanService {
   }
 
   /**
-   * Get user's plan by week
+   * Get user's plan grouped by week then by day, with meal count per day
    */
   static async getByWeek(userId, weekNumber) {
     try {
       const result = await db.query(
         `SELECT mp.*, m.title as meal_title, m.image_url, m.category,
-                m.preparation_time, m.complexity,
+                m.description, m.preparation_time, m.complexity,
                 e.calories, e.protein, e.carbs, e.fats
          FROM meal_plans mp
          LEFT JOIN meals m ON mp.meal_id = m.id
          LEFT JOIN meal_energy e ON m.energy_id = e.id
          WHERE mp.user_id = $1 AND mp.week_number = $2
-         ORDER BY mp.day_of_week, mp.slot_type`,
+         ORDER BY mp.week_number, mp.day_of_week, mp.slot_type`,
         [userId, weekNumber]
       );
-      return result.rows;
+
+      const DAY_NAMES = {
+        1: "Monday", 2: "Tuesday", 3: "Wednesday",
+        4: "Thursday", 5: "Friday", 6: "Saturday", 7: "Sunday"
+      };
+
+      // Group by week_number → day_of_week
+      const grouped = {};
+
+      for (const row of result.rows) {
+        const week = `week_${row.week_number}`;
+        const dayNum = row.day_of_week;
+        const dayKey = `day_${dayNum}`;
+
+        if (!grouped[week]) {
+          grouped[week] = { week_number: row.week_number, days: {} };
+        }
+
+        if (!grouped[week].days[dayKey]) {
+          grouped[week].days[dayKey] = {
+            day_of_week: dayNum,
+            day_name: DAY_NAMES[dayNum] || `Day ${dayNum}`,
+            meals_count: 0,
+            meals: []
+          };
+        }
+
+        grouped[week].days[dayKey].meals.push(row);
+        grouped[week].days[dayKey].meals_count += 1;
+      }
+
+      // Convert day maps to sorted arrays
+      for (const week of Object.values(grouped)) {
+        week.days = Object.values(week.days).sort((a, b) => a.day_of_week - b.day_of_week);
+      }
+
+      return grouped;
     } catch (error) {
       logger.error(`Error fetching plan by week: ${error.message}`);
       throw error;
