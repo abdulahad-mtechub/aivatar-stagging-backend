@@ -1,4 +1,5 @@
 const StreakService = require("../services/streak.service");
+const RewardService = require("../services/reward.service");
 const AppError = require("../utils/appError");
 const asyncHandler = require("../utils/asyncHandler");
 const { apiResponse } = require("../utils/apiResponse");
@@ -9,7 +10,10 @@ const { apiResponse } = require("../utils/apiResponse");
  */
 exports.createStreak = asyncHandler(async (req, res, next) => {
   const userId = req.user.id;
-  const { activity_type = "general", rule_id } = req.body;
+  
+  // Robustly extract fields (handles trailing spaces in JSON keys)
+  const activity_type = req.body.activity_type || req.body["activity_type "] || "general";
+  const rule_id = req.body.rule_id || req.body["rule_id "];
 
   try {
     const result = await StreakService.createStreak(userId, activity_type, rule_id);
@@ -44,8 +48,14 @@ exports.getStreakSummary = asyncHandler(async (req, res, next) => {
   const userId = req.user.id;
 
   try {
-    const result = await StreakService.getSummary(userId);
-    return apiResponse(res, 200, "Streak summary retrieved", result);
+    const summary = await StreakService.getSummary(userId);
+    const balance = await RewardService.getUserBalance(userId);
+    
+    return apiResponse(res, 200, "Streak summary retrieved", {
+      summary,
+      total_earned_points: balance.total_earned || 0,
+      current_balance: balance.current_balance || 0
+    });
   } catch (error) {
     return next(new AppError(error.message, 500));
   }

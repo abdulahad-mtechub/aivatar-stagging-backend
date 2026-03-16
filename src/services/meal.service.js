@@ -129,6 +129,94 @@ class MealService {
       throw error;
     }
   }
+
+  /**
+   * Get all meals in the user's grocery list
+   */
+  static async getGroceryList(userId) {
+    try {
+      const result = await db.query(
+        `SELECT m.*, e.calories, e.protein, e.carbs, e.fats
+         FROM meals m
+         LEFT JOIN meal_energy e ON m.energy_id = e.id
+         WHERE m.user_id = $1 AND m.is_in_grocery = true
+         ORDER BY m.created_at DESC`,
+        [userId]
+      );
+      return result.rows;
+    } catch (error) {
+      logger.error(`Error fetching grocery list: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Toggle bought status for a meal
+   */
+  static async toggleBoughtStatus(userId, mealId, isBought) {
+    try {
+      const result = await db.query(
+        `UPDATE meals SET is_bought = $1, updated_at = NOW() 
+         WHERE user_id = $2 AND id = $3 RETURNING *`,
+        [isBought, userId, mealId]
+      );
+      return result.rows[0];
+    } catch (error) {
+      logger.error(`Error toggling bought status: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Bulk update grocery status
+   */
+  static async updateGroceryStatus(userId, mealIds, isInGrocery) {
+    try {
+      const result = await db.query(
+        `UPDATE meals SET is_in_grocery = $1, updated_at = NOW() 
+         WHERE user_id = $2 AND id = ANY($3) RETURNING *`,
+        [isInGrocery, userId, mealIds]
+      );
+      return result.rows;
+    } catch (error) {
+      logger.error(`Error updating grocery status: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Bulk update bought status
+   */
+  static async updateBoughtStatus(userId, mealIds, isBought) {
+    try {
+      const result = await db.query(
+        `UPDATE meals SET is_bought = $1, updated_at = NOW() 
+         WHERE user_id = $2 AND id = ANY($3) RETURNING *`,
+        [isBought, userId, mealIds]
+      );
+      return result.rows;
+    } catch (error) {
+      logger.error(`Error updating bought status: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Clear grocery list for user
+   */
+  static async clearGroceryList(userId) {
+    try {
+      const result = await db.query(
+        `UPDATE meals SET is_in_grocery = false, is_bought = false, updated_at = NOW() 
+         WHERE user_id = $1 AND is_in_grocery = true RETURNING *`,
+        [userId]
+      );
+      return result.rows;
+    } catch (error) {
+      logger.error(`Error clearing grocery list: ${error.message}`);
+      throw error;
+    }
+  }
 }
 
 module.exports = MealService;

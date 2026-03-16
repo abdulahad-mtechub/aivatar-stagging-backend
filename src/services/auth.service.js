@@ -127,7 +127,12 @@ class AuthService {
    */
   static async register(userData) {
     try {
-      const { name, email, password, role = "user" } = userData;
+      const { name, email, password, confirm_password, role = "user" } = userData;
+
+      // Validate passwords match
+      if (password !== confirm_password) {
+        throw new Error("Passwords do not match");
+      }
 
       // Check if email already exists (including soft-deleted)
       const anyUser = await UserService.findAnyByEmail(email);
@@ -162,6 +167,7 @@ class AuthService {
         name,
         email,
         password: hashedPassword,
+        confirm_password: hashedPassword, // Store hashed version for consistency
         role,
       });
 

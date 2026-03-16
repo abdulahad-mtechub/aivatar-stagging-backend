@@ -50,11 +50,11 @@ exports.adminLogin = asyncHandler(async (req, res, next) => {
  * Register a new user
  */
 exports.register = asyncHandler(async (req, res, next) => {
-  const { name, email, password, role } = req.body;
+  const { name, email, password, confirm_password, role } = req.body;
 
   // Validate input
-  if (!name || !email || !password) {
-    return next(new AppError("Please provide name, email and password", 400));
+  if (!name || !email || !password || !confirm_password) {
+    return next(new AppError("Please provide name, email, password and confirm password", 400));
   }
 
   try {
@@ -63,6 +63,7 @@ exports.register = asyncHandler(async (req, res, next) => {
       name,
       email,
       password,
+      confirm_password,
       role,
     });
 

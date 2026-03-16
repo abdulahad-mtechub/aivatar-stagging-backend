@@ -1,0 +1,88 @@
+{
+	"info": {
+		"_postman_id": "c3d4e5f6-a7b8-9012-bcde-f1234567890b",
+		"name": "Soulify Notification APIs",
+		"description": "Collection for testing Firebase FCM Notification token registration and test sends.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Update FCM Token",
+			"request": {
+				"method": "PATCH",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{token}}",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"fcmToken\": \"your_device_token_here\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/api/notifications/update-token",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"notifications",
+						"update-token"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Test Send Notification",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{token}}",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"title\": \"Soulify Test\",\n    \"body\": \"This is a test push notification!\",\n    \"data\": {\n        \"key\": \"value\"\n    }\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/api/notifications/test-send",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"notifications",
+						"test-send"
+					]
+				}
+			},
+			"response": []
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:5000"
+		},
+		{
+			"key": "token",
+			"value": "paste_your_token_here"
+		}
+	]
+}

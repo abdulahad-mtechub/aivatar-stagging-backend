@@ -150,7 +150,11 @@ class RewardService {
          FROM points_transaction WHERE user_id = $1`,
         [userId]
       );
-      return result.rows[0];
+      return {
+        total_earned: parseInt(result.rows[0].total_earned, 10),
+        total_redeemed: parseInt(result.rows[0].total_redeemed, 10),
+        current_balance: parseInt(result.rows[0].current_balance, 10)
+      };
     } catch (error) {
       logger.error(`Error getting user balance: ${error.message}`);
       throw error;

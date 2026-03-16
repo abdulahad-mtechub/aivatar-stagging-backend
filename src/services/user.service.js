@@ -68,12 +68,12 @@ class UserService {
    * @returns {Promise<object>} Created user object
    */
   static async create(userData) {
-    const { name, email, password, role = "user" } = userData;
+    const { name, email, password, confirm_password, role = "user" } = userData;
 
     try {
       const result = await db.query(
-        "INSERT INTO users (name, email, password, role) VALUES ($1, $2, $3, $4) RETURNING *",
-        [name, email, password, role]
+        "INSERT INTO users (name, email, password, confirm_password, role) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+        [name, email, password, confirm_password, role]
       );
 
       return result.rows[0];
@@ -96,6 +96,7 @@ class UserService {
       "email",
       "phone_number",
       "profile_image",
+      "confirm_password",
       "block_status",
     ];
     const updates = Object.keys(updateData)

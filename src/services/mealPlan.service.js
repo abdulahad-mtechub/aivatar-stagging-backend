@@ -186,6 +186,56 @@ class MealPlanService {
       throw error;
     }
   }
+
+  /**
+   * Fetch daily ingredients (planned meals with their status)
+   * Grouped by Week -> Day -> Slot
+   */
+  static async getDailyIngredients(userId, date) {
+    try {
+      // If we want grouped by week/day, we should probably fetch all for the user or by filter
+      // For now, if date is provided, we fetch the whole plan to allow the week/day selector to work
+      const result = await db.query(
+        `SELECT mp.week_number, mp.day_of_week, mp.slot_type, 
+                m.id as meal_id, m.title, m.quantity, m.image_url, m.is_in_grocery, m.is_bought
+         FROM meal_plans mp
+         JOIN meals m ON mp.meal_id = m.id
+         WHERE mp.user_id = $1
+         ORDER BY mp.week_number, mp.day_of_week, mp.slot_type`,
+        [userId]
+      );
+
+      const DAY_NAMES = {
+        1: "Monday", 2: "Tuesday", 3: "Wednesday",
+        4: "Thursday", 5: "Friday", 6: "Saturday", 7: "Sunday"
+      };
+
+      // Nested Grouping: Week -> Day -> Slot
+      const grouped = result.rows.reduce((acc, row) => {
+        const weekKey = `WEEK_${String(row.week_number).padStart(2, '0')}`;
+        const dayKey = `DAY_${row.day_of_week}`;
+        const slotKey = row.slot_type.toUpperCase();
+
+        if (!acc[weekKey]) acc[weekKey] = { week_number: row.week_number, days: {} };
+        if (!acc[weekKey].days[dayKey]) {
+          acc[weekKey].days[dayKey] = {
+            day_number: row.day_of_week,
+            day_name: DAY_NAMES[row.day_of_week] || `Day ${row.day_of_week}`,
+            slots: {}
+          };
+        }
+        if (!acc[weekKey].days[dayKey].slots[slotKey]) acc[weekKey].days[dayKey].slots[slotKey] = [];
+        
+        acc[weekKey].days[dayKey].slots[slotKey].push(row);
+        return acc;
+      }, {});
+
+      return grouped;
+    } catch (error) {
+      logger.error(`Error fetching nested daily ingredients: ${error.message}`);
+      throw error;
+    }
+  }
 }
 
 module.exports = MealPlanService;

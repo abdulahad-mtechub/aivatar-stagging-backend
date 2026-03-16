@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
   name VARCHAR(255) NOT NULL,
   email VARCHAR(255) UNIQUE NOT NULL,
   password VARCHAR(255) NOT NULL,
+  confirm_password VARCHAR(255),
   role VARCHAR(50) DEFAULT 'user' CHECK (role IN ('user', 'admin')),
   phone_number VARCHAR(20),
   profile_image TEXT,
@@ -17,7 +18,8 @@ CREATE TABLE IF NOT EXISTS users (
   deleted_at TIMESTAMP,
   is_verified BOOLEAN DEFAULT false,
   otp VARCHAR(10),
-  otp_expires_at TIMESTAMP
+  otp_expires_at TIMESTAMP,
+  fcm_token VARCHAR(255)
 );
 
 -- Create indexes for users table
@@ -66,6 +68,11 @@ CREATE TABLE IF NOT EXISTS profiles (
   gender VARCHAR(20),                          -- User's own gender (e.g. 'male', 'female', 'non-binary')
   qa_list JSONB DEFAULT '[]'::jsonb,           -- Array of {question, answer} objects
   job_type VARCHAR(100),                       -- User's job type / occupation
+  target_calories INTEGER DEFAULT 2000,
+  target_protein FLOAT DEFAULT 150.0,
+  target_carbs FLOAT DEFAULT 200.0,
+  target_fats FLOAT DEFAULT 70.0,
+  target_weight FLOAT,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
   deleted_at TIMESTAMP,
@@ -117,6 +124,9 @@ CREATE TABLE IF NOT EXISTS meals (
   complexity VARCHAR(50),      -- e.g. 'Easy', 'Medium', 'Hard'
   image_url TEXT,
   category VARCHAR(50),         -- e.g. 'Breakfast', 'Lunch'
+  quantity VARCHAR(100),         -- e.g. '2 x 500g'
+  is_in_grocery BOOLEAN DEFAULT false,
+  is_bought BOOLEAN DEFAULT false,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -238,6 +248,24 @@ CREATE INDEX IF NOT EXISTS idx_exercises_category ON exercises(category);
 CREATE INDEX IF NOT EXISTS idx_workout_exercises_workout_id ON workout_exercises(workout_id);
 CREATE INDEX IF NOT EXISTS idx_user_workout_sessions_user_id ON user_workout_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_workout_sets_session_id ON workout_sets(session_id);
+
+-- 6. User Physical Measurements
+CREATE TABLE IF NOT EXISTS user_measurements (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  weight FLOAT,
+  waist FLOAT,
+  chest FLOAT,
+  hips FLOAT,
+  arm FLOAT,
+  recorded_date DATE DEFAULT CURRENT_DATE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  CONSTRAINT uq_user_measurement_date UNIQUE (user_id, recorded_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_measurements_user_id ON user_measurements(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_measurements_recorded_date ON user_measurements(recorded_date);
 
 
 -- ==========================================

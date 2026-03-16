@@ -1,14 +1,21 @@
-require("dotenv").config();
-const { pool } = require("../src/config/database");
+require('dotenv').config();
+const db = require('../src/config/database');
 
-async function run() {
+async function checkRules() {
   try {
-    const res = await pool.query("SELECT * FROM reward_management LIMIT 5");
-    console.log(JSON.stringify(res.rows, null, 2));
+    console.log('--- Reward Management Rules ---');
+    const result = await db.query('SELECT * FROM reward_management');
+    console.table(result.rows);
+    
+    console.log('\n--- User Streaks with activity_type = "test" ---');
+    const streaks = await db.query('SELECT * FROM user_streaks WHERE activity_type = $1', ['test']);
+    console.table(streaks.rows);
+    
     process.exit(0);
-  } catch (err) {
-    console.error(err);
+  } catch (error) {
+    console.error('Error:', error.message);
     process.exit(1);
   }
 }
-run();
+
+checkRules();

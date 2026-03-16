@@ -1,5 +1,6 @@
 const { pool } = require("../config/database");
 const logger = require("../utils/logger");
+const RewardService = require("./reward.service");
 
 // Milestone days that trigger celebrations
 const MILESTONES = [3, 7, 14, 30, 60, 90, 180, 365];
@@ -29,11 +30,25 @@ class StreakService {
       throw new Error(`Streak already recorded today for this activity/rule`);
     }
 
-    // 2. Fetch Rule Details (if ruleId provided)
+    // 2. Fetch Rule Details (Match by ruleId OR activity_type)
     let rulePoints = 0;
     let cycleCap = null;
-    if (ruleId) {
-      const ruleRes = await pool.query(`SELECT * FROM reward_management WHERE id = $1`, [ruleId]);
+    let finalRuleId = ruleId;
+
+    if (!finalRuleId) {
+      // Auto-lookup rule by activity_type
+      const autoRuleRes = await pool.query(
+        `SELECT id FROM reward_management WHERE module_type = $1 AND is_active = true LIMIT 1`,
+        [activityType]
+      );
+      if (autoRuleRes.rows.length > 0) {
+        finalRuleId = autoRuleRes.rows[0].id;
+        logger.info(`Auto-linked activity '${activityType}' to reward rule ${finalRuleId}`);
+      }
+    }
+
+    if (finalRuleId) {
+      const ruleRes = await pool.query(`SELECT * FROM reward_management WHERE id = $1`, [finalRuleId]);
       if (ruleRes.rows.length > 0) {
         const rule = ruleRes.rows[0];
         rulePoints = rule.points_amount;
@@ -49,17 +64,28 @@ class StreakService {
       `INSERT INTO user_streaks (user_id, activity_type, rule_id, steak_added_date, is_streak)
        VALUES ($1, $2, $3, NOW(), 1)
        RETURNING *`,
-      [userId, activityType, ruleId]
+      [userId, activityType, finalRuleId]
     );
 
     const newRecord = result.rows[0];
 
+    // 3.5 Award Points if rule exists
+    if (finalRuleId) {
+      try {
+        await RewardService.earnPoints(userId, finalRuleId);
+      } catch (awardError) {
+        logger.warn(`Failed to award points for rule ${finalRuleId}: ${awardError.message}`);
+        // We continue anyway so the streak itself is still recorded
+      }
+    }
+
     // 4. Count current active streak length
-    const countQuery = ruleId
+    const countQuery = finalRuleId
       ? `SELECT COUNT(*) AS streak_count FROM user_streaks WHERE user_id = $1 AND rule_id = $2 AND is_streak = 1`
       : `SELECT COUNT(*) AS streak_count FROM user_streaks WHERE user_id = $1 AND activity_type = $2 AND is_streak = 1`;
 
-    const countResult = await pool.query(countQuery, todayCheckParams);
+    const countParams = finalRuleId ? [userId, finalRuleId] : [userId, activityType];
+    const countResult = await pool.query(countQuery, countParams);
     let streak_count = parseInt(countResult.rows[0].streak_count);
 
     // 5. Check if Cycle Cap Reached (e.g. 7/7) -> If hit, we need to mark them as completed/expired for the next day
@@ -72,13 +98,24 @@ class StreakService {
 
     const milestone_reached = MILESTONES.includes(streak_count) ? streak_count : null;
 
+    // 6. Calculate total points and percentage
+    const totalPointsRes = await pool.query(
+      `SELECT COALESCE(SUM(points_amount), 0) as total FROM points_transaction 
+       WHERE user_id = $1 AND rule_id = $2 AND type = 'earned'`,
+      [userId, finalRuleId]
+    );
+    const total_earned_points = parseInt(totalPointsRes.rows[0].total);
+    const percent_earned = cycleCap ? Math.min(Math.round((streak_count / cycleCap) * 100), 100) : 0;
+
     return {
       record: newRecord,
       streak_count,     // Earned
       cycle_cap: cycleCap, // Total out of
       reward_points: rulePoints,
+      total_earned_points,
+      percent_earned,
       activity_type: activityType,
-      rule_id: ruleId,
+      rule_id: finalRuleId,
       milestone_reached,
       is_milestone: !!milestone_reached,
       cycle_completed
@@ -110,8 +147,10 @@ class StreakService {
     const frequencyCaps = {};
     const rulePointsMap = {};
 
+    const ruleIdMap = {};
     for (const rule of rulesRes.rows) {
       if (!rule.module_type || rule.module_type === 'daily_login') continue;
+      ruleIdMap[rule.module_type] = rule.id;
 
       if (parseInt(rule.events_per_day) === 1) {
         resetTriggerTypes.add(rule.module_type);
@@ -134,12 +173,12 @@ class StreakService {
     // 2. Fetch current counts and last active dates per activity_type BEFORE updates
     // We need current counts to know if they hit the cap
     const currentRows = await pool.query(
-      `SELECT activity_type,
+      `SELECT activity_type, rule_id,
               COUNT(*) AS current_streak,
               MAX(steak_added_date) AS last_activity_date
        FROM user_streaks
        WHERE user_id = $1 AND is_streak = 1 ${typeFilter.replace('$2', activityType ? '$2' : '')}
-       GROUP BY activity_type`,
+       GROUP BY activity_type, rule_id`,
       params
     );
 
@@ -179,12 +218,12 @@ class StreakService {
 
     // 3. Fetch UPDATED current counts per activity_type (post-expiration)
     const rows = await pool.query(
-      `SELECT activity_type,
+      `SELECT activity_type, rule_id,
               COUNT(*) AS current_streak,
               MAX(steak_added_date) AS last_activity_date
        FROM user_streaks
        WHERE user_id = $1 AND is_streak = 1 ${typeFilter.replace('$2', activityType ? '$2' : '')}
-       GROUP BY activity_type`,
+       GROUP BY activity_type, rule_id`,
       params
     );
 
@@ -210,6 +249,21 @@ class StreakService {
     );
     const todaySet = new Set(todayRows.rows.map((r) => r.activity_type));
 
+    // 5.5 Fetch total points per rule_id AND module_type
+    const pointsRows = await pool.query(
+      `SELECT rule_id, module_type, SUM(points_amount) as total_points
+       FROM points_transaction
+       WHERE user_id = $1 AND type = 'earned'
+       GROUP BY rule_id, module_type`,
+      [userId]
+    );
+    const pointsMapByRule = {};
+    const pointsMapByType = {};
+    for (const p of pointsRows.rows) {
+      if (p.rule_id) pointsMapByRule[p.rule_id] = parseInt(p.total_points, 10);
+      if (p.module_type) pointsMapByType[p.module_type] = parseInt(p.total_points, 10);
+    }
+
     // 6. Build response
     const streaks = rows.rows.map((r) => {
       const current = parseInt(r.current_streak);
@@ -221,8 +275,13 @@ class StreakService {
         next_milestone = cap;
       }
 
+      const total_earned = pointsMapByRule[r.rule_id || 0] || pointsMapByType[r.activity_type] || 0;
+      const percent = cap ? Math.min(Math.round((current / cap) * 100), 100) : 0;
+      const reward_points = rulePointsMap[r.activity_type] || 0;
+
       return {
         activity_type: r.activity_type,
+        rule_id: r.rule_id,
         current_streak: current,
         longest_streak: bestMap[r.activity_type] || current,
         last_activity_date: r.last_activity_date,
@@ -231,13 +290,17 @@ class StreakService {
         next_milestone,
         next_milestone_in: next_milestone ? next_milestone - current : null,
         cycle_cap: cap || null, // Expose the max cap if it exists
-        reward_points: rulePointsMap[r.activity_type] || 0
+        reward_points: reward_points,
+        total_earned_points: total_earned,
+        cycle_earned_points: current * reward_points,
+        percent_earned: percent
       };
     });
 
     if (activityType) {
-      return streaks[0] || {
+      const s = streaks[0] || {
         activity_type: activityType,
+        rule_id: null,
         current_streak: 0,
         longest_streak: 0,
         last_activity_date: null,
@@ -246,8 +309,12 @@ class StreakService {
         next_milestone: MILESTONES[0],
         next_milestone_in: MILESTONES[0],
         cycle_cap: frequencyCaps[activityType] || null,
-        reward_points: rulePointsMap[activityType] || 0
+        reward_points: rulePointsMap[activityType] || 0,
+        total_earned_points: pointsMapByRule[ruleIdMap[activityType]] || pointsMapByType[activityType] || 0,
+        cycle_earned_points: 0,
+        percent_earned: 0
       };
+      return s;
     }
 
     return { streaks };
@@ -305,6 +372,11 @@ class StreakService {
           recorded_today: false,
           next_milestone: MILESTONES[0],
           next_milestone_in: MILESTONES[0],
+          cycle_cap: null,
+          reward_points: 0,
+          total_earned_points: 0,
+          cycle_earned_points: 0,
+          percent_earned: 0
         };
       }
     }
