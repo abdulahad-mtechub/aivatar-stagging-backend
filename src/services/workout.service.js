@@ -30,7 +30,7 @@ class WorkoutService {
       if (!workoutRes.rows[0]) return null;
 
       const exercisesRes = await db.query(
-        `SELECT e.*, we.sequence_order, we.default_sets, we.default_reps 
+        `SELECT e.*, we.sequence_order, we.default_sets, we.default_reps, we.default_weight, we.target_sets 
          FROM exercises e 
          JOIN workout_exercises we ON e.id = we.exercise_id 
          WHERE we.workout_id = $1 
@@ -70,9 +70,17 @@ class WorkoutService {
       if (exercises && Array.isArray(exercises)) {
         for (const [index, exercise] of exercises.entries()) {
           await client.query(
-            `INSERT INTO workout_exercises (workout_id, exercise_id, sequence_order, default_sets, default_reps) 
-             VALUES ($1, $2, $3, $4, $5)`,
-            [workoutId, exercise.id, index + 1, exercise.sets || 3, exercise.reps || 10]
+            `INSERT INTO workout_exercises (workout_id, exercise_id, sequence_order, default_sets, default_reps, default_weight, target_sets) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [
+              workoutId, 
+              exercise.id, 
+              index + 1, 
+              exercise.sets || 3, 
+              exercise.reps || 10, 
+              exercise.weight || 0.0, 
+              JSON.stringify(exercise.target_sets || [])
+            ]
           );
         }
       }
