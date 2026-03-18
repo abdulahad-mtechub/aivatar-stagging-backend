@@ -9,13 +9,57 @@ const asyncHandler = require("../utils/asyncHandler");
  */
 class WorkoutController {
   /**
+   * Workout Home (First screen)
+   * Returns planned workout(s) + missed + recommendations in one payload
+   * GET /api/workouts/home?week_number=1&day_of_week=2&plan_date=2026-03-19
+   */
+  static getWorkoutHome = asyncHandler(async (req, res) => {
+    const userId = req.user.id;
+
+    const data = await WorkoutService.getHome(userId, {
+      week_number: req.query.week_number,
+      day_of_week: req.query.day_of_week,
+      plan_date: req.query.plan_date,
+      include_all_workouts: req.query.include_all_workouts !== "false",
+      all_workouts_limit: req.query.all_workouts_limit,
+      missed_limit: req.query.missed_limit,
+    });
+
+    return successResponse(res, {
+      message: "Workout home fetched successfully",
+      data,
+    });
+  });
+
+  /**
    * Get all workout templates
    */
   static getAllWorkouts = asyncHandler(async (req, res) => {
-    const workouts = await WorkoutService.findAll();
+    const workouts = await WorkoutService.findAll({
+      include_exercises: req.query.include_exercises !== "false",
+      limit: req.query.limit || 50,
+      offset: req.query.offset || 0,
+    });
     return successResponse(res, {
       message: "Workouts fetched successfully",
       data: workouts,
+    });
+  });
+
+  /**
+   * Quick workouts list (e.g. <= 20 minutes)
+   * GET /api/workouts/quick?max_duration_minutes=20&limit=20&offset=0
+   */
+  static getQuickWorkouts = asyncHandler(async (req, res) => {
+    const data = await WorkoutService.findQuick({
+      max_duration_minutes: req.query.max_duration_minutes || 20,
+      limit: req.query.limit || 20,
+      offset: req.query.offset || 0,
+    });
+
+    return successResponse(res, {
+      message: "Quick workouts fetched successfully",
+      data,
     });
   });
 
@@ -112,6 +156,48 @@ class WorkoutController {
     return successResponse(res, {
       message: "Workout completed successfully",
       data: summary,
+    });
+  });
+
+  /**
+   * Get session details for workout details screen
+   * GET /api/workouts/sessions/:id
+   */
+  static getSessionById = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const sessionId = Number(id);
+    if (!Number.isInteger(sessionId) || sessionId <= 0) {
+      return errorResponse(res, "Invalid session id", 400);
+    }
+
+    const data = await WorkoutSessionService.getSessionDetail(sessionId, userId);
+    if (!data) return errorResponse(res, "Session not found", 404);
+
+    return successResponse(res, {
+      message: "Workout session detail fetched successfully",
+      data,
+    });
+  });
+
+  /**
+   * Previous session best set for an exercise (per user)
+   * GET /api/workouts/exercises/:id/previous-session
+   */
+  static getExercisePreviousSession = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const exerciseId = Number(id);
+    if (!Number.isInteger(exerciseId) || exerciseId <= 0) {
+      return errorResponse(res, "Invalid exercise id", 400);
+    }
+
+    const data = await WorkoutSessionService.getExercisePreviousSession(exerciseId, userId);
+    return successResponse(res, {
+      message: "Previous session fetched successfully",
+      data,
     });
   });
 

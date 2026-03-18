@@ -60,9 +60,185 @@ class WorkoutSessionService {
         [total_volume || 0, (sets_done || 0) * 15, sessionId] // Simple calorie estimation
       );
 
-      return result.rows[0];
+      const row = result.rows[0];
+
+      // Provide clearer metric names for frontend (keep old fields for compatibility)
+      return {
+        ...row,
+        total_sets_completed: Number(sets_done || 0),
+        total_workout_volume: Number(total_volume || 0), // alias of total_volume
+        total_lifted_volume: Number(total_volume || 0), // reps * weight (sum), alias for UI wording
+        calories_burned_estimated: row.calories_burned,
+        metrics: {
+          total_sets_completed: Number(sets_done || 0),
+          total_lifted_volume: Number(total_volume || 0),
+          calories_burned_estimated: row.calories_burned
+        }
+      };
     } catch (error) {
       logger.error(`Error completing workout session: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Get full session detail (for workout details screen)
+   * Includes: session, workout, exercises (targets), and logged sets progress
+   */
+  static async getSessionDetail(sessionId, userId) {
+    try {
+      const sessionRes = await db.query(
+        `SELECT s.*, w.name as workout_name, w.description as workout_description,
+                w.duration_minutes, w.difficulty as workout_difficulty,
+                w.workout_type, w.estimated_calories, w.thumbnail_url
+         FROM user_workout_sessions s
+         LEFT JOIN workouts w ON s.workout_id = w.id
+         WHERE s.id = $1 AND s.user_id = $2`,
+        [sessionId, userId]
+      );
+
+      const session = sessionRes.rows[0];
+      if (!session) return null;
+
+      const exercisesRes = await db.query(
+        `SELECT
+           e.*,
+           we.sequence_order,
+           we.default_sets,
+           we.default_reps,
+           we.default_weight,
+           we.target_sets,
+           we.rest_time_seconds,
+           we.exercise_duration_seconds,
+           we.notes
+         FROM workout_exercises we
+         JOIN exercises e ON e.id = we.exercise_id
+         WHERE we.workout_id = $1
+         ORDER BY we.sequence_order ASC`,
+        [session.workout_id]
+      );
+
+      const logsRes = await db.query(
+        `SELECT *
+         FROM workout_sets
+         WHERE session_id = $1
+         ORDER BY exercise_id, set_number`,
+        [sessionId]
+      );
+
+      // Index logs by exercise_id + set_number
+      const logMap = new Map();
+      for (const row of logsRes.rows) {
+        logMap.set(`${row.exercise_id}:${row.set_number}`, row);
+      }
+
+      const exercises = exercisesRes.rows.map((ex) => {
+        const setsPlanned =
+          (Array.isArray(ex.target_sets) && ex.target_sets.length > 0
+            ? ex.target_sets
+            : Array.from({ length: Number(ex.default_sets || 0) }, (_, idx) => ({
+                set_number: idx + 1,
+                target_reps: ex.default_reps ?? null,
+                target_weight: ex.default_weight ?? null,
+                rest_time_seconds: ex.rest_time_seconds ?? ex.default_rest_time_seconds ?? null,
+              })));
+
+        const sets = setsPlanned.map((s) => {
+          const key = `${ex.id}:${s.set_number}`;
+          const logged = logMap.get(key);
+          return {
+            set_number: s.set_number,
+            target_reps: s.target_reps ?? null,
+            target_weight: s.target_weight ?? null,
+            rest_time_seconds: s.rest_time_seconds ?? null,
+            actual_reps: logged?.actual_reps ?? null,
+            actual_weight: logged?.actual_weight ?? null,
+            done: Boolean(logged?.is_completed),
+            logged_at: logged?.created_at ?? null,
+          };
+        });
+
+        return {
+          ...ex,
+          video_url: ex.video_url || ex.media_url || null,
+          sets,
+        };
+      });
+
+      return {
+        session: {
+          id: session.id,
+          user_id: session.user_id,
+          workout_id: session.workout_id,
+          status: session.status,
+          start_time: session.start_time,
+          end_time: session.end_time,
+          total_volume: session.total_volume,
+          calories_burned: session.calories_burned,
+          created_at: session.created_at,
+          updated_at: session.updated_at,
+        },
+        workout: session.workout_id
+          ? {
+              id: session.workout_id,
+              name: session.workout_name,
+              description: session.workout_description,
+              duration_minutes: session.duration_minutes,
+              difficulty: session.workout_difficulty,
+              workout_type: session.workout_type,
+              estimated_calories: session.estimated_calories,
+              thumbnail_url: session.thumbnail_url,
+            }
+          : null,
+        exercises,
+      };
+    } catch (error) {
+      logger.error(`Error getting session detail: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Get previous session best set for an exercise (for "Previous Session" card)
+   */
+  static async getExercisePreviousSession(exerciseId, userId) {
+    try {
+      const res = await db.query(
+        `
+        SELECT
+          s.id as session_id,
+          s.end_time,
+          ws.actual_reps,
+          ws.actual_weight,
+          (COALESCE(ws.actual_reps,0) * COALESCE(ws.actual_weight,0)) as volume,
+          ws.set_number
+        FROM workout_sets ws
+        JOIN user_workout_sessions s ON s.id = ws.session_id
+        WHERE s.user_id = $1
+          AND ws.exercise_id = $2
+          AND ws.is_completed = true
+          AND s.status = 'completed'
+        ORDER BY volume DESC, s.end_time DESC NULLS LAST
+        LIMIT 1
+        `,
+        [userId, exerciseId]
+      );
+
+      const best = res.rows[0];
+      if (!best) return null;
+
+      return {
+        session_id: best.session_id,
+        date: best.end_time,
+        best_set: {
+          set_number: best.set_number,
+          reps: best.actual_reps,
+          weight: best.actual_weight,
+          volume: Number(best.volume || 0),
+        },
+      };
+    } catch (error) {
+      logger.error(`Error getting previous session: ${error.message}`);
       throw error;
     }
   }

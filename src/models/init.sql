@@ -182,10 +182,16 @@ CREATE TABLE IF NOT EXISTS exercises (
   title VARCHAR(255) NOT NULL,
   description TEXT,
   media_url TEXT,
+  video_url TEXT,
+  thumbnail_url TEXT,
   audio_url TEXT,
   instructions JSONB DEFAULT '{}'::jsonb,
   category VARCHAR(50),
   target_muscle_group VARCHAR(100),
+  duration_seconds INTEGER,
+  equipment VARCHAR(100),
+  difficulty VARCHAR(50),
+  default_rest_time_seconds INTEGER,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
   deleted_at TIMESTAMP
@@ -195,8 +201,11 @@ CREATE TABLE IF NOT EXISTS exercises (
 CREATE TABLE IF NOT EXISTS workouts (
   id SERIAL PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
+  description TEXT,
   duration_minutes INTEGER,
   difficulty VARCHAR(50),
+  workout_type VARCHAR(50),
+  estimated_calories INTEGER,
   thumbnail_url TEXT,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
@@ -211,6 +220,11 @@ CREATE TABLE IF NOT EXISTS workout_exercises (
   sequence_order INTEGER NOT NULL,
   default_sets INTEGER DEFAULT 3,
   default_reps INTEGER DEFAULT 10,
+  default_weight FLOAT DEFAULT 0.0,
+  target_sets JSONB DEFAULT '[]'::jsonb,
+  rest_time_seconds INTEGER,
+  exercise_duration_seconds INTEGER,
+  notes TEXT,
   created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -248,6 +262,79 @@ CREATE INDEX IF NOT EXISTS idx_exercises_category ON exercises(category);
 CREATE INDEX IF NOT EXISTS idx_workout_exercises_workout_id ON workout_exercises(workout_id);
 CREATE INDEX IF NOT EXISTS idx_user_workout_sessions_user_id ON user_workout_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_workout_sets_session_id ON workout_sets(session_id);
+
+-- 6. Workout Plans (AI-generated / scheduled)
+CREATE TABLE IF NOT EXISTS workout_plans (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  workout_id INTEGER REFERENCES workouts(id) ON DELETE SET NULL,
+  parent_slot_id INTEGER REFERENCES workout_plans(id) ON DELETE SET NULL,
+  week_number INTEGER NOT NULL DEFAULT 1,
+  day_of_week INTEGER NOT NULL CHECK (day_of_week BETWEEN 1 AND 7), -- 1=Mon, 7=Sun
+  plan_date DATE,
+  slot_type VARCHAR(20) NOT NULL DEFAULT 'workout',
+  status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'completed', 'missed', 'skipped'
+  is_skipped BOOLEAN DEFAULT false,
+  is_swapped BOOLEAN DEFAULT false,
+  assigned_reason VARCHAR(50),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_workout_plans_user_id ON workout_plans(user_id);
+CREATE INDEX IF NOT EXISTS idx_workout_plans_week_day ON workout_plans(user_id, week_number, day_of_week);
+CREATE INDEX IF NOT EXISTS idx_workout_plans_plan_date ON workout_plans(user_id, plan_date);
+CREATE INDEX IF NOT EXISTS idx_workout_plans_parent_slot_id ON workout_plans(parent_slot_id);
+
+-- ==========================================
+-- Reminder Settings + In-app Notifications
+-- ==========================================
+
+CREATE TABLE IF NOT EXISTS reminder_settings (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+
+  do_not_disturb_enabled BOOLEAN DEFAULT false,
+  dnd_start_time TIME,
+  dnd_end_time TIME,
+
+  morning_briefing_enabled BOOLEAN DEFAULT true,
+  morning_briefing_time TIME DEFAULT '07:00',
+
+  workout_reminder_enabled BOOLEAN DEFAULT true,
+  workout_reminder_time TIME DEFAULT '18:00',
+
+  meal_reminders_enabled BOOLEAN DEFAULT true,
+  meal_reminder_times JSONB DEFAULT '["08:00","13:00","20:00"]'::jsonb,
+
+  weekly_weigh_in_enabled BOOLEAN DEFAULT false,
+  weekly_weigh_in_day_of_week INTEGER CHECK (weekly_weigh_in_day_of_week BETWEEN 1 AND 7),
+  weekly_weigh_in_time TIME DEFAULT '07:00',
+
+  daily_motivation_enabled BOOLEAN DEFAULT true,
+  daily_motivation_time TIME DEFAULT '09:00',
+
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_reminder_settings_user_id ON reminder_settings(user_id);
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type VARCHAR(50) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  body TEXT NOT NULL,
+  is_read BOOLEAN DEFAULT false,
+  read_at TIMESTAMP,
+  metadata JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(user_id, is_read);
+CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at);
 
 -- 6. User Physical Measurements
 CREATE TABLE IF NOT EXISTS user_measurements (
