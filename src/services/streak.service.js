@@ -1,6 +1,7 @@
 const { pool } = require("../config/database");
 const logger = require("../utils/logger");
 const RewardService = require("./reward.service");
+const NotificationService = require("./notification.service");
 
 // Milestone days that trigger celebrations
 const MILESTONES = [3, 7, 14, 30, 60, 90, 180, 365];
@@ -97,6 +98,24 @@ class StreakService {
     }
 
     const milestone_reached = MILESTONES.includes(streak_count) ? streak_count : null;
+
+    if (milestone_reached) {
+      const rulePart = finalRuleId != null ? String(finalRuleId) : "norule";
+      const milestoneKey = `streak:${activityType}:${rulePart}:${milestone_reached}`;
+      try {
+        await NotificationService.createMilestoneCelebration(
+          userId,
+          {
+            milestone_key: milestoneKey,
+            achievement_headline: `${milestone_reached}-day streak`,
+            source: "streak",
+          },
+          { send_push: true, try_milestone_bonus: true }
+        );
+      } catch (notifyErr) {
+        logger.warn(`Milestone celebration notification failed: ${notifyErr.message}`);
+      }
+    }
 
     // 6. Calculate total points and percentage
     const totalPointsRes = await pool.query(

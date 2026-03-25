@@ -48,10 +48,16 @@ CREATE TABLE IF NOT EXISTS goals (
   id SERIAL PRIMARY KEY,
   title VARCHAR(255) NOT NULL,
   description TEXT,
+  plan_duration VARCHAR(100),
+  goal_weight FLOAT,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
   deleted_at TIMESTAMP
 );
+
+-- Backward-compatible columns for existing databases
+ALTER TABLE goals ADD COLUMN IF NOT EXISTS plan_duration VARCHAR(100);
+ALTER TABLE goals ADD COLUMN IF NOT EXISTS goal_weight FLOAT;
 
 -- Create indexes for goals table
 CREATE INDEX IF NOT EXISTS idx_goals_deleted_at ON goals(deleted_at);
@@ -83,6 +89,38 @@ CREATE TABLE IF NOT EXISTS profiles (
 CREATE INDEX IF NOT EXISTS idx_profiles_user_id ON profiles(user_id);
 CREATE INDEX IF NOT EXISTS idx_profiles_goal_id ON profiles(goal_id);
 CREATE INDEX IF NOT EXISTS idx_profiles_deleted_at ON profiles(deleted_at);
+
+-- Stripe transaction + subscription tables
+CREATE TABLE IF NOT EXISTS stripe_transactions (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  session_id TEXT UNIQUE NOT NULL,
+  plan_key VARCHAR(100) NOT NULL,
+  stripe_customer_id TEXT,
+  stripe_payment_intent_id TEXT,
+  amount_total BIGINT,
+  currency VARCHAR(10),
+  status VARCHAR(50),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_stripe_transactions_user_id ON stripe_transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_stripe_transactions_plan_key ON stripe_transactions(plan_key);
+
+CREATE TABLE IF NOT EXISTS stripe_subscriptions (
+  id SERIAL PRIMARY KEY,
+  transaction_id INTEGER NOT NULL REFERENCES stripe_transactions(id) ON DELETE CASCADE,
+  stripe_subscription_id TEXT UNIQUE NOT NULL,
+  plan_key VARCHAR(100) NOT NULL,
+  status VARCHAR(50),
+  current_period_end TIMESTAMP,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  CONSTRAINT uq_stripe_subscriptions_transaction UNIQUE (transaction_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_stripe_subscriptions_plan_key ON stripe_subscriptions(plan_key);
+CREATE INDEX IF NOT EXISTS idx_stripe_subscriptions_status ON stripe_subscriptions(status);
 
 -- Content Management table (Privacy Policy, Terms & Conditions, etc.)
 CREATE TABLE IF NOT EXISTS contentmanagement (

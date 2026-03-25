@@ -99,3 +99,23 @@ exports.send = asyncHandler(async (req, res, next) => {
 
   return apiResponse(res, 201, "Notification sent successfully", { notification: row });
 });
+
+/**
+ * POST /api/notifications/broadcast-active (admin)
+ * Body: { type?, title, body, metadata?, send_push? }
+ * Creates in-app notification for all active users (non-deleted, non-blocked, role user) and sends push when token exists.
+ */
+exports.broadcastToActiveUsers = asyncHandler(async (req, res, next) => {
+  const { type, title, body, metadata, send_push } = req.body || {};
+
+  if (!title || !body) {
+    return next(new AppError("title and body are required", 400));
+  }
+
+  const summary = await NotificationService.broadcastToActiveUsers(
+    { type, title, body, metadata },
+    { send_push: send_push !== false }
+  );
+
+  return apiResponse(res, 201, "Broadcast queued successfully", summary);
+});

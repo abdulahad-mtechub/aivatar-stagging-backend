@@ -1,4 +1,5 @@
 const AuthService = require("../services/auth.service");
+const ProfileService = require("../services/profile.service");
 const AppError = require("../utils/appError");
 const asyncHandler = require("../utils/asyncHandler");
 const { apiResponse } = require("../utils/apiResponse");
@@ -18,7 +19,16 @@ exports.login = asyncHandler(async (req, res, next) => {
     // Authenticate user
     const result = await AuthService.login(email, password);
 
-    return apiResponse(res, 200, "Login successful", result);
+    const profile = await ProfileService.findByUserId(result?.user?.id, {
+      ensureGoalId: false,
+    });
+    const profile_completion_percentage =
+      ProfileService.calculateProfileCompletionPercentage(profile);
+
+    return apiResponse(res, 200, "Login successful", {
+      ...result,
+      profile_completion_percentage,
+    });
   } catch (error) {
     return next(new AppError(error.message, 401));
   }
@@ -39,7 +49,16 @@ exports.adminLogin = asyncHandler(async (req, res, next) => {
     // Authenticate admin
     const result = await AuthService.adminLogin(email, password);
 
-    return apiResponse(res, 200, "Admin login successful", result);
+    const profile = await ProfileService.findByUserId(result?.user?.id, {
+      ensureGoalId: false,
+    });
+    const profile_completion_percentage =
+      ProfileService.calculateProfileCompletionPercentage(profile);
+
+    return apiResponse(res, 200, "Admin login successful", {
+      ...result,
+      profile_completion_percentage,
+    });
   } catch (error) {
     const statusCode = error.message.includes("Access denied") ? 403 : 401;
     return next(new AppError(error.message, statusCode));
@@ -151,8 +170,15 @@ exports.getProfile = asyncHandler(async (req, res, next) => {
   // Remove password from response
   const { password, ...userWithoutPassword } = user;
 
+  const profile = await ProfileService.findByUserId(req.user.id, {
+    ensureGoalId: false,
+  });
+  const profile_completion_percentage =
+    ProfileService.calculateProfileCompletionPercentage(profile);
+
   return apiResponse(res, 200, "Profile retrieved successfully", {
     user: userWithoutPassword,
+    profile_completion_percentage,
   });
 });
 

@@ -3,10 +3,8 @@ const router = express.Router();
 const reportController = require("../controllers/report.controller");
 const { protect } = require("../middlewares/auth.middleware");
 
-router.use(protect);
-
-router.get("/daily", reportController.getDailyReport);
-router.get("/weekly", reportController.getWeeklyReport);
-router.get("/prediction", reportController.getPrediction);
+router.get("/daily", protect, reportController.getDailyReport);
+router.get("/weekly", protect, reportController.getWeeklyReport);
+router.get("/prediction", protect, reportController.getPrediction);
 
 module.exports = router;
