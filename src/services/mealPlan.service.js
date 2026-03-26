@@ -63,11 +63,29 @@ class MealPlanService {
       const result = await db.query(
         `SELECT mp.*, m.title as meal_title, m.image_url, m.category,
                 m.description, m.preparation_time, m.complexity,
-                e.calories, e.protein, e.carbs, e.fats
+                e.calories, e.protein, e.carbs, e.fats,
+                COALESCE(
+                  json_agg(
+                    json_build_object(
+                      'id', mi.id,
+                      'name', mi.name,
+                      'quantity', mi.quantity,
+                      'unit', mi.unit,
+                      'image_url', mi.image_url,
+                      'calories', mi.calories,
+                      'protein', mi.protein,
+                      'carbs', mi.carbs,
+                      'fats', mi.fats
+                    ) ORDER BY mi.id
+                  ) FILTER (WHERE mi.id IS NOT NULL),
+                  '[]'
+                ) AS pre_measured_quantities
          FROM meal_plans mp
          LEFT JOIN meals m ON mp.meal_id = m.id
          LEFT JOIN meal_energy e ON m.energy_id = e.id
+         LEFT JOIN meal_ingredients mi ON mi.meal_id = m.id
          WHERE mp.user_id = $1 AND mp.week_number = $2
+         GROUP BY mp.id, m.id, e.id
          ORDER BY mp.week_number, mp.day_of_week, mp.slot_type`,
         [userId, weekNumber]
       );
@@ -122,11 +140,29 @@ class MealPlanService {
       const result = await db.query(
         `SELECT mp.*, m.title as meal_title, m.image_url, m.category,
                 m.preparation_time, m.complexity,
-                e.calories, e.protein, e.carbs, e.fats
+                e.calories, e.protein, e.carbs, e.fats,
+                COALESCE(
+                  json_agg(
+                    json_build_object(
+                      'id', mi.id,
+                      'name', mi.name,
+                      'quantity', mi.quantity,
+                      'unit', mi.unit,
+                      'image_url', mi.image_url,
+                      'calories', mi.calories,
+                      'protein', mi.protein,
+                      'carbs', mi.carbs,
+                      'fats', mi.fats
+                    ) ORDER BY mi.id
+                  ) FILTER (WHERE mi.id IS NOT NULL),
+                  '[]'
+                ) AS pre_measured_quantities
          FROM meal_plans mp
          LEFT JOIN meals m ON mp.meal_id = m.id
          LEFT JOIN meal_energy e ON m.energy_id = e.id
+         LEFT JOIN meal_ingredients mi ON mi.meal_id = m.id
          WHERE mp.user_id = $1 AND mp.week_number = $2 AND mp.day_of_week = $3
+         GROUP BY mp.id, m.id, e.id
          ORDER BY mp.slot_type`,
         [userId, weekNumber, dayOfWeek]
       );
@@ -172,11 +208,28 @@ class MealPlanService {
       const result = await db.query(
         `SELECT mp.*, m.title as meal_title, m.image_url, m.category,
                 m.preparation_time, m.complexity,
-                e.calories, e.protein, e.carbs, e.fats
+                e.calories, e.protein, e.carbs, e.fats,
+                COALESCE(
+                  json_agg(
+                    json_build_object(
+                      'id', mi.id,
+                      'name', mi.name,
+                      'quantity', mi.quantity,
+                      'unit', mi.unit,
+                      'calories', mi.calories,
+                      'protein', mi.protein,
+                      'carbs', mi.carbs,
+                      'fats', mi.fats
+                    ) ORDER BY mi.id
+                  ) FILTER (WHERE mi.id IS NOT NULL),
+                  '[]'
+                ) AS pre_measured_quantities
          FROM meal_plans mp
          LEFT JOIN meals m ON mp.meal_id = m.id
          LEFT JOIN meal_energy e ON m.energy_id = e.id
+         LEFT JOIN meal_ingredients mi ON mi.meal_id = m.id
          WHERE mp.user_id = $1 AND mp.slot_type = $2
+         GROUP BY mp.id, m.id, e.id
          ORDER BY mp.week_number, mp.day_of_week`,
         [userId, category]
       );

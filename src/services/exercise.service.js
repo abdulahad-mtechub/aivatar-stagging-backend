@@ -53,12 +53,57 @@ class ExerciseService {
    * Create a new exercise (AI-generated from frontend)
    */
   static async create(exerciseData) {
-    const { title, description, media_url, audio_url, instructions, category, target_muscle_group } = exerciseData;
+    const {
+      title,
+      description,
+      media_url,
+      video_url,
+      thumbnail_url,
+      audio_url,
+      instructions,
+      category,
+      target_muscle_group,
+      duration_seconds,
+      equipment,
+      difficulty,
+      default_rest_time_seconds,
+    } = exerciseData;
+
+    const normalizedVideoUrl = video_url || media_url || null;
     try {
       const result = await db.query(
-        `INSERT INTO exercises (title, description, media_url, audio_url, instructions, category, target_muscle_group) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-        [title, description, media_url, audio_url, instructions || {}, category, target_muscle_group]
+        `INSERT INTO exercises (
+           title,
+           description,
+           media_url,
+           video_url,
+           thumbnail_url,
+           audio_url,
+           instructions,
+           category,
+           target_muscle_group,
+           duration_seconds,
+           equipment,
+           difficulty,
+           default_rest_time_seconds
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+         RETURNING *`,
+        [
+          title,
+          description,
+          media_url || normalizedVideoUrl,
+          normalizedVideoUrl,
+          thumbnail_url,
+          audio_url,
+          instructions || {},
+          category,
+          target_muscle_group,
+          duration_seconds,
+          equipment,
+          difficulty,
+          default_rest_time_seconds,
+        ]
       );
       return result.rows[0];
     } catch (error) {

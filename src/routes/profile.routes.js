@@ -1,16 +1,14 @@
 const express = require("express");
 const router = express.Router();
 const profileController = require("../controllers/profile.controller");
-const { protect, restrictTo } = require("../middlewares/auth.middleware");
-
-// All profile routes require authentication
-router.use(protect);
+const { protect } = require("../middlewares/auth.middleware");
 
 // Authenticated user — own profile
-router.get("/me", profileController.getMyProfile);
-router.post("/", profileController.createProfile);
-router.put("/:id", profileController.updateProfile);
-router.delete("/:id", profileController.deleteProfile);
+router.get("/me", protect, profileController.getMyProfile);
+router.put("/me/goal", protect, profileController.updateMyGoalSettings);
+router.post("/", protect, profileController.createProfile);
+router.put("/:id", protect, profileController.updateProfile);
+router.delete("/:id", protect, profileController.deleteProfile);
 
 
 

@@ -51,7 +51,13 @@ exports.getMyProfile = asyncHandler(async (req, res, next) => {
         return next(new AppError("Resource not found", 404));
     }
 
-    return apiResponse(res, 200, "Resource retrieved successfully", { profile });
+    const profile_completion_percentage =
+        ProfileService.calculateProfileCompletionPercentage(profile);
+
+    return apiResponse(res, 200, "Resource retrieved successfully", {
+        profile,
+        profile_completion_percentage,
+    });
 });
 
 /**
@@ -171,4 +177,38 @@ exports.deleteProfile = asyncHandler(async (req, res, next) => {
     await ProfileService.delete(id);
 
     return apiResponse(res, 200, "Resource deleted successfully");
+});
+
+/**
+ * Save goal settings for current user and link goal with profile.
+ *
+ * PUT /api/profiles/me/goal
+ * Body: { goal_type, plan_duration, goal_weight }
+ */
+exports.updateMyGoalSettings = asyncHandler(async (req, res, next) => {
+    const userId = req.user.id;
+    const goal_type = req.body.goal_type ?? req.body.goalType;
+    const plan_duration = req.body.plan_duration ?? req.body.planDuration;
+    const goal_weight = req.body.goal_weight ?? req.body.goalWeight;
+
+    if (!goal_type || !String(goal_type).trim()) {
+        return next(new AppError("goal_type is required", 400));
+    }
+
+    if (
+        goal_weight !== undefined &&
+        goal_weight !== null &&
+        goal_weight !== "" &&
+        !Number.isFinite(Number(goal_weight))
+    ) {
+        return next(new AppError("goal_weight must be a valid number", 400));
+    }
+
+    const profile = await ProfileService.upsertGoalSettings(userId, {
+        goal_type,
+        plan_duration,
+        goal_weight,
+    });
+
+    return apiResponse(res, 200, "Goal settings saved successfully", { profile });
 });

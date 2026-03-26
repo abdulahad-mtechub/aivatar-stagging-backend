@@ -4,17 +4,14 @@ const userController = require("../controllers/user.controller");
 const { protect } = require("../middlewares/auth.middleware");
 const { restrictTo } = require("../middlewares/auth.middleware");
 
-// All user routes require authentication
-router.use(protect);
-
 // User routes
-router.delete("/me", userController.deleteMe);
+router.delete("/me", protect, userController.deleteMe);
 
 // Admin only routes
-router.get("/", restrictTo("admin"), userController.getAllUsers);
-router.get("/:id", restrictTo("admin"), userController.getUserById);
-router.put("/:id", restrictTo("admin"), userController.updateUser);
-router.delete("/:id", restrictTo("admin"), userController.deleteUser);
+router.get("/", protect, restrictTo("admin"), userController.getAllUsers);
+router.get("/:id", protect, restrictTo("admin"), userController.getUserById);
+router.put("/:id", protect, restrictTo("admin"), userController.updateUser);
+router.delete("/:id", protect, restrictTo("admin"), userController.deleteUser);
 
 module.exports = router;
 

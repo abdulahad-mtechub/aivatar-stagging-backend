@@ -47,14 +47,25 @@ class MealService {
    */
   static async findById(id) {
     try {
-      const result = await db.query(
+      const mealResult = await db.query(
         `SELECT m.*, e.calories, e.protein, e.carbs, e.fats
          FROM meals m
          LEFT JOIN meal_energy e ON m.energy_id = e.id
          WHERE m.id = $1`,
         [id]
       );
-      return result.rows[0] || null;
+      if (!mealResult.rows[0]) return null;
+      const meal = mealResult.rows[0];
+
+      // Fetch pre-measured quantities
+      const ingResult = await db.query(
+        `SELECT id, meal_id, name, quantity, unit, image_url, calories, protein, carbs, fats, created_at, updated_at 
+         FROM meal_ingredients WHERE meal_id = $1 ORDER BY id ASC`,
+        [id]
+      );
+      meal.pre_measured_quantities = ingResult.rows;
+
+      return meal;
     } catch (error) {
       logger.error(`Error finding meal by ID: ${error.message}`);
       throw error;
@@ -67,10 +78,28 @@ class MealService {
   static async findAll(userId) {
     try {
       const result = await db.query(
-        `SELECT m.*, e.calories, e.protein, e.carbs, e.fats
+        `SELECT m.*,
+                e.calories, e.protein, e.carbs, e.fats,
+                COALESCE(
+                  json_agg(
+                    json_build_object(
+                      'id', mi.id,
+                      'name', mi.name,
+                      'quantity', mi.quantity,
+                      'unit', mi.unit,
+                      'calories', mi.calories,
+                      'protein', mi.protein,
+                      'carbs', mi.carbs,
+                      'fats', mi.fats
+                    ) ORDER BY mi.id
+                  ) FILTER (WHERE mi.id IS NOT NULL),
+                  '[]'
+                ) AS pre_measured_quantities
          FROM meals m
          LEFT JOIN meal_energy e ON m.energy_id = e.id
+         LEFT JOIN meal_ingredients mi ON mi.meal_id = m.id
          WHERE m.user_id = $1
+         GROUP BY m.id, e.id
          ORDER BY m.created_at DESC`,
         [userId]
       );
@@ -87,10 +116,29 @@ class MealService {
   static async findAllGrouped(userId) {
     try {
       const result = await db.query(
-        `SELECT m.*, e.calories, e.protein, e.carbs, e.fats
+        `SELECT m.*,
+                e.calories, e.protein, e.carbs, e.fats,
+                COALESCE(
+                  json_agg(
+                    json_build_object(
+                      'id', mi.id,
+                      'name', mi.name,
+                      'quantity', mi.quantity,
+                      'unit', mi.unit,
+                      'image_url', mi.image_url,
+                      'calories', mi.calories,
+                      'protein', mi.protein,
+                      'carbs', mi.carbs,
+                      'fats', mi.fats
+                    ) ORDER BY mi.id
+                  ) FILTER (WHERE mi.id IS NOT NULL),
+                  '[]'
+                ) AS pre_measured_quantities
          FROM meals m
          LEFT JOIN meal_energy e ON m.energy_id = e.id
+         LEFT JOIN meal_ingredients mi ON mi.meal_id = m.id
          WHERE m.user_id = $1
+         GROUP BY m.id, e.id
          ORDER BY m.category ASC, m.created_at DESC`,
         [userId]
       );
@@ -116,10 +164,28 @@ class MealService {
   static async findByCategory(userId, category) {
     try {
       const result = await db.query(
-        `SELECT m.*, e.calories, e.protein, e.carbs, e.fats
+        `SELECT m.*,
+                e.calories, e.protein, e.carbs, e.fats,
+                COALESCE(
+                  json_agg(
+                    json_build_object(
+                      'id', mi.id,
+                      'name', mi.name,
+                      'quantity', mi.quantity,
+                      'unit', mi.unit,
+                      'calories', mi.calories,
+                      'protein', mi.protein,
+                      'carbs', mi.carbs,
+                      'fats', mi.fats
+                    ) ORDER BY mi.id
+                  ) FILTER (WHERE mi.id IS NOT NULL),
+                  '[]'
+                ) AS pre_measured_quantities
          FROM meals m
          LEFT JOIN meal_energy e ON m.energy_id = e.id
+         LEFT JOIN meal_ingredients mi ON mi.meal_id = m.id
          WHERE m.user_id = $1 AND LOWER(m.category) = LOWER($2)
+         GROUP BY m.id, e.id
          ORDER BY m.created_at DESC`,
         [userId, category]
       );

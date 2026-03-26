@@ -7,10 +7,16 @@ CREATE TABLE IF NOT EXISTS exercises (
   title VARCHAR(255) NOT NULL,
   description TEXT,
   media_url TEXT, -- Video URL
+  video_url TEXT,
+  thumbnail_url TEXT,
   audio_url TEXT,
   instructions JSONB DEFAULT '{}'::jsonb, -- Detailed steps
   category VARCHAR(50),
   target_muscle_group VARCHAR(100),
+  duration_seconds INTEGER,
+  equipment VARCHAR(100),
+  difficulty VARCHAR(50),
+  default_rest_time_seconds INTEGER,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
   deleted_at TIMESTAMP
@@ -20,8 +26,11 @@ CREATE TABLE IF NOT EXISTS exercises (
 CREATE TABLE IF NOT EXISTS workouts (
   id SERIAL PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
+  description TEXT,
   duration_minutes INTEGER,
   difficulty VARCHAR(50),
+  workout_type VARCHAR(50),
+  estimated_calories INTEGER,
   thumbnail_url TEXT,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
@@ -36,6 +45,11 @@ CREATE TABLE IF NOT EXISTS workout_exercises (
   sequence_order INTEGER NOT NULL,
   default_sets INTEGER DEFAULT 3,
   default_reps INTEGER DEFAULT 10,
+  default_weight FLOAT DEFAULT 0.0,
+  target_sets JSONB DEFAULT '[]'::jsonb,
+  rest_time_seconds INTEGER,
+  exercise_duration_seconds INTEGER,
+  notes TEXT,
   created_at TIMESTAMP DEFAULT NOW()
 );
 

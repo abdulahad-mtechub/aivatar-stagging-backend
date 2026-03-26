@@ -3,13 +3,10 @@ const router = express.Router();
 const mealController = require("../controllers/meal.controller");
 const { protect } = require("../middlewares/auth.middleware");
 
-// All meal routes are protected to ensure user ownership
-router.use(protect);
-
-router.get("/", mealController.getMeals);
-router.get("/grouped", mealController.getMealsGrouped);
-router.get("/category/:category", mealController.getMealsByCategory);
-router.get("/:id", mealController.getMealDetails);
-router.post("/", mealController.createMeal);
+router.get("/", protect, mealController.getMeals);
+router.get("/grouped", protect, mealController.getMealsGrouped);
+router.get("/category/:category", protect, mealController.getMealsByCategory);
+router.get("/:id", protect, mealController.getMealDetails);
+router.post("/", protect, mealController.createMeal);
 
 module.exports = router;
