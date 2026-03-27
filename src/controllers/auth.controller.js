@@ -1,5 +1,8 @@
 const AuthService = require("../services/auth.service");
 const ProfileService = require("../services/profile.service");
+const RewardService = require("../services/reward.service");
+const BadgeService = require("../services/badge.service");
+const ReminderService = require("../services/reminder.service");
 const AppError = require("../utils/appError");
 const asyncHandler = require("../utils/asyncHandler");
 const { apiResponse } = require("../utils/apiResponse");
@@ -175,10 +178,16 @@ exports.getProfile = asyncHandler(async (req, res, next) => {
   });
   const profile_completion_percentage =
     ProfileService.calculateProfileCompletionPercentage(profile);
+  const balance = await RewardService.getUserBalance(req.user.id);
+  const badge = await BadgeService.getUserActiveBadge(balance.current_balance);
+  const reminder = await ReminderService.getOrCreate(req.user.id);
 
   return apiResponse(res, 200, "Profile retrieved successfully", {
     user: userWithoutPassword,
     profile_completion_percentage,
+    balance,
+    badge: badge || null,
+    reminder,
   });
 });
 

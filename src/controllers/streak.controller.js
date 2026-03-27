@@ -48,11 +48,11 @@ exports.getStreakSummary = asyncHandler(async (req, res, next) => {
   const userId = req.user.id;
 
   try {
-    const summary = await StreakService.getSummary(userId);
+    const summaryResult = await StreakService.getSummary(userId);
     const balance = await RewardService.getUserBalance(userId);
     
     return apiResponse(res, 200, "Streak summary retrieved", {
-      summary,
+      summary: summaryResult.summary,
       total_earned_points: balance.total_earned || 0,
       current_balance: balance.current_balance || 0
     });
