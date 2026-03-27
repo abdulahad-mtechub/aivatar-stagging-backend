@@ -7,7 +7,7 @@
 "RUN npm i --force",
 "COPY . .",
 "EXPOSE 3058",
-"CMD [\"npm\", \"run\", \"dev\"]"
+"CMD [\"node\", \"server.js\"]"
 ],
 "caproverOneClickApp": null
 }
