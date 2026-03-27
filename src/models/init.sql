@@ -469,3 +469,20 @@ CREATE INDEX IF NOT EXISTS idx_badges_max_points ON badges(max_points);
 CREATE INDEX IF NOT EXISTS idx_user_streaks_user_id ON user_streaks(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_streaks_is_streak ON user_streaks(is_streak);
 CREATE INDEX IF NOT EXISTS idx_user_streaks_added_date ON user_streaks(steak_added_date);
+
+-- ==========================================
+-- User Activity Log
+-- ==========================================
+
+CREATE TABLE IF NOT EXISTS activity_log (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  module_key VARCHAR(100) NOT NULL,
+  description TEXT,
+  action_type VARCHAR(100) NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_activity_log_user_id ON activity_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_activity_log_action_type ON activity_log(action_type);
+CREATE INDEX IF NOT EXISTS idx_activity_log_created_at ON activity_log(created_at);

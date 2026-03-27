@@ -20,6 +20,7 @@ const reportRoutes = require("./report.routes");
 const notificationRoutes = require("./notification.routes");
 const reminderRoutes = require("./reminder.routes");
 const stripeRoutes = require("./stripe.routes");
+const activityRoutes = require("./activity.routes");
 
 // Mount route modules
 router.use("/auth", authRoutes);
@@ -42,6 +43,7 @@ router.use("/reports", reportRoutes);
 router.use("/notifications", notificationRoutes);
 router.use("/reminders", reminderRoutes);
 router.use("/stripe", stripeRoutes);
+router.use("/activity", activityRoutes);
 
 module.exports = router;
 
