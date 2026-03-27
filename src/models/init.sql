@@ -27,22 +27,6 @@ CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 CREATE INDEX IF NOT EXISTS idx_users_deleted_at ON users(deleted_at);
 
--- Posts table (example CRUD resource)
-CREATE TABLE IF NOT EXISTS posts (
-  id SERIAL PRIMARY KEY,
-  title VARCHAR(255) NOT NULL,
-  content TEXT NOT NULL,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
-  deleted_at TIMESTAMP
-);
-
--- Create indexes for posts table
-CREATE INDEX IF NOT EXISTS idx_posts_user_id ON posts(user_id);
-CREATE INDEX IF NOT EXISTS idx_posts_deleted_at ON posts(deleted_at);
-CREATE INDEX IF NOT EXISTS idx_posts_created_at ON posts(created_at);
-
 -- Goals reference table (used by profiles)
 CREATE TABLE IF NOT EXISTS goals (
   id SERIAL PRIMARY KEY,

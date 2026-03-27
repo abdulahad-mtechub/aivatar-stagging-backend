@@ -1,8 +1,17 @@
 const ProfileService = require("../services/profile.service");
+const RewardService = require("../services/reward.service");
+const BadgeService = require("../services/badge.service");
+const ReminderService = require("../services/reminder.service");
 const AppError = require("../utils/appError");
 const asyncHandler = require("../utils/asyncHandler");
 const { apiResponse } = require("../utils/apiResponse");
 const { validatePaginationParams, generatePagination } = require("../utils/pagination");
+
+function stripReminderField(profile) {
+    if (!profile) return profile;
+    const { reminder, ...rest } = profile;
+    return rest;
+}
 
 /**
  * Create a profile for the authenticated user.
@@ -34,7 +43,9 @@ exports.createProfile = asyncHandler(async (req, res, next) => {
         job_type,
     });
 
-    return apiResponse(res, 201, "Resource created successfully", { profile });
+    return apiResponse(res, 201, "Resource created successfully", {
+        profile: stripReminderField(profile),
+    });
 });
 
 /**
@@ -53,10 +64,16 @@ exports.getMyProfile = asyncHandler(async (req, res, next) => {
 
     const profile_completion_percentage =
         ProfileService.calculateProfileCompletionPercentage(profile);
+    const balance = await RewardService.getUserBalance(userId);
+    const badge = await BadgeService.getUserActiveBadge(balance.current_balance);
+    const reminder = await ReminderService.getOrCreate(userId);
 
     return apiResponse(res, 200, "Resource retrieved successfully", {
-        profile,
+        profile: stripReminderField(profile),
         profile_completion_percentage,
+        balance,
+        badge: badge || null,
+        reminder,
     });
 });
 
@@ -80,7 +97,9 @@ exports.getProfileById = asyncHandler(async (req, res, next) => {
         return next(new AppError("You do not have permission to perform this action", 403));
     }
 
-    return apiResponse(res, 200, "Resource retrieved successfully", { profile });
+    return apiResponse(res, 200, "Resource retrieved successfully", {
+        profile: stripReminderField(profile),
+    });
 });
 
 /**
@@ -95,7 +114,7 @@ exports.getAllProfiles = asyncHandler(async (req, res, next) => {
     const result = await ProfileService.findAll({ page: pageNum, limit: limitNum });
 
     return apiResponse(res, 200, "Resources retrieved successfully", {
-        profiles: result.profiles,
+        profiles: (result.profiles || []).map(stripReminderField),
         pagination: result.pagination,
     });
 });
@@ -153,7 +172,9 @@ exports.updateProfile = asyncHandler(async (req, res, next) => {
         return next(new AppError("No fields to update", 400));
     }
 
-    return apiResponse(res, 200, "Resource updated successfully", { profile: updatedProfile });
+    return apiResponse(res, 200, "Resource updated successfully", {
+        profile: stripReminderField(updatedProfile),
+    });
 });
 
 /**
@@ -210,5 +231,7 @@ exports.updateMyGoalSettings = asyncHandler(async (req, res, next) => {
         goal_weight,
     });
 
-    return apiResponse(res, 200, "Goal settings saved successfully", { profile });
+    return apiResponse(res, 200, "Goal settings saved successfully", {
+        profile: stripReminderField(profile),
+    });
 });

@@ -10,6 +10,18 @@ const MILESTONES = [3, 7, 14, 30, 60, 90, 180, 365];
  * Service for managing user streaks
  */
 class StreakService {
+  static async getRawStreakRecords(userId, activityType = null) {
+    const typeFilter = activityType ? "AND activity_type = $2" : "";
+    const params = activityType ? [userId, activityType] : [userId];
+    const rows = await pool.query(
+      `SELECT *
+       FROM user_streaks
+       WHERE user_id = $1 ${typeFilter}
+       ORDER BY steak_added_date DESC, id DESC`,
+      params
+    );
+    return rows.rows;
+  }
 
   /**
    * Record activity for today.
@@ -298,21 +310,24 @@ class StreakService {
       const percent = cap ? Math.min(Math.round((current / cap) * 100), 100) : 0;
       const reward_points = rulePointsMap[r.activity_type] || 0;
 
+      const readable = {
+        current_streak_days: current,
+        next_milestone_target_days: next_milestone,
+        days_to_next_milestone: next_milestone ? next_milestone - current : null,
+        streak_cycle_total_days: cap || null,
+        points_per_activity: reward_points,
+        total_points_earned: total_earned,
+        current_cycle_points_earned: current * reward_points,
+        cycle_progress_percent: percent,
+      };
+
       return {
         activity_type: r.activity_type,
         rule_id: r.rule_id,
-        current_streak: current,
-        longest_streak: bestMap[r.activity_type] || current,
+        ...readable,
         last_activity_date: r.last_activity_date,
         is_active: true, // Only active streaks are returned from the currentRows query
         recorded_today: todaySet.has(r.activity_type),
-        next_milestone,
-        next_milestone_in: next_milestone ? next_milestone - current : null,
-        cycle_cap: cap || null, // Expose the max cap if it exists
-        reward_points: reward_points,
-        total_earned_points: total_earned,
-        cycle_earned_points: current * reward_points,
-        percent_earned: percent
       };
     });
 
@@ -320,23 +335,27 @@ class StreakService {
       const s = streaks[0] || {
         activity_type: activityType,
         rule_id: null,
-        current_streak: 0,
-        longest_streak: 0,
+        current_streak_days: 0,
+        next_milestone_target_days: MILESTONES[0],
+        days_to_next_milestone: MILESTONES[0],
+        streak_cycle_total_days: frequencyCaps[activityType] || null,
+        points_per_activity: rulePointsMap[activityType] || 0,
+        total_points_earned: pointsMapByRule[ruleIdMap[activityType]] || pointsMapByType[activityType] || 0,
+        current_cycle_points_earned: 0,
+        cycle_progress_percent: 0,
         last_activity_date: null,
         is_active: false,
         recorded_today: false,
-        next_milestone: MILESTONES[0],
-        next_milestone_in: MILESTONES[0],
-        cycle_cap: frequencyCaps[activityType] || null,
-        reward_points: rulePointsMap[activityType] || 0,
-        total_earned_points: pointsMapByRule[ruleIdMap[activityType]] || pointsMapByType[activityType] || 0,
-        cycle_earned_points: 0,
-        percent_earned: 0
       };
-      return s;
+      const streak_records = await this.getRawStreakRecords(userId, activityType);
+      return {
+        ...s,
+        streak_records,
+      };
     }
 
-    return { streaks };
+    const streak_records = await this.getRawStreakRecords(userId, null);
+    return { streaks, streak_records };
   }
 
   /**
@@ -375,7 +394,10 @@ class StreakService {
     // Build a map from the streaks array
     const summaryMap = {};
     for (const s of data.streaks) {
-      summaryMap[s.activity_type] = s;
+      summaryMap[s.activity_type] = {
+        ...s,
+        streak_records: [],
+      };
     }
 
     // Ensure standard types always appear in summary
@@ -384,23 +406,49 @@ class StreakService {
       if (!summaryMap[type]) {
         summaryMap[type] = {
           activity_type: type,
-          current_streak: 0,
-          longest_streak: 0,
+          current_streak_days: 0,
+          next_milestone_target_days: MILESTONES[0],
+          days_to_next_milestone: MILESTONES[0],
+          streak_cycle_total_days: null,
+          points_per_activity: 0,
+          total_points_earned: 0,
+          current_cycle_points_earned: 0,
+          cycle_progress_percent: 0,
           last_activity_date: null,
           is_active: false,
           recorded_today: false,
-          next_milestone: MILESTONES[0],
-          next_milestone_in: MILESTONES[0],
-          cycle_cap: null,
-          reward_points: 0,
-          total_earned_points: 0,
-          cycle_earned_points: 0,
-          percent_earned: 0
+          streak_records: [],
         };
       }
     }
 
-    return Object.values(summaryMap);
+    // Attach raw records under their own activity summary object
+    const allRecords = data.streak_records || [];
+    for (const rec of allRecords) {
+      const key = rec.activity_type;
+      if (!summaryMap[key]) {
+        summaryMap[key] = {
+          activity_type: key,
+          current_streak_days: 0,
+          next_milestone_target_days: MILESTONES[0],
+          days_to_next_milestone: MILESTONES[0],
+          streak_cycle_total_days: null,
+          points_per_activity: 0,
+          total_points_earned: 0,
+          current_cycle_points_earned: 0,
+          cycle_progress_percent: 0,
+          last_activity_date: null,
+          is_active: false,
+          recorded_today: false,
+          streak_records: [],
+        };
+      }
+      summaryMap[key].streak_records.push(rec);
+    }
+
+    return {
+      summary: Object.values(summaryMap),
+    };
   }
 }
 
