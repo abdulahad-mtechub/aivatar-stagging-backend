@@ -1,13 +1,12 @@
 {
-"schemaVersion": 2,
-"dockerfileLines": [
-"FROM node:20",
-"WORKDIR /src",
-"COPY package*.json ./",
-"RUN npm i --force",
-"COPY . .",
-"EXPOSE 3058",
-"CMD [\"node\", \"server.js\"]"
-],
-"caproverOneClickApp": null
+  "schemaVersion": 2,
+  "dockerfileLines": [
+    "FROM node:20",
+    "WORKDIR /src",
+    "COPY package*.json ./",
+    "RUN npm install",
+    "COPY . .",
+    "EXPOSE 3058",
+    "CMD [\"npm\", \"start\"]"
+  ]
 }
