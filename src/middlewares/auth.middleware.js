@@ -5,16 +5,15 @@ const AppError = require("../utils/appError");
 /**
  * Middleware to protect routes - verify JWT token
  */
+const JWT_SECRET =
+  process.env.JWT_SECRET || "your-fallback-secret-key-change-in-production";
+
 exports.protect = async (req, res, next) => {
   try {
-    // 1) Get token from header
-    let token;
-    if (
-      req.headers.authorization &&
-      req.headers.authorization.startsWith("Bearer")
-    ) {
-      token = req.headers.authorization.split(" ")[1];
-    }
+    // Require a real JWT string after "Bearer" (not empty / not only whitespace)
+    const raw = req.headers.authorization?.trim();
+    const bearerMatch = raw?.match(/^Bearer\s+(\S+)/i);
+    const token = bearerMatch?.[1];
 
     if (!token) {
       return next(
@@ -22,11 +21,10 @@ exports.protect = async (req, res, next) => {
       );
     }
 
-    // 2) Verify token
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET || "your-fallback-secret-key-change-in-production"
-    );
+    // 2) Verify token (explicit algorithm — blocks "none" / unexpected alg tokens)
+    const decoded = jwt.verify(token, JWT_SECRET, {
+      algorithms: ["HS256"],
+    });
 
     // 3) Check if user still exists and is not blocked
     const result = await pool.query(
@@ -72,6 +70,11 @@ exports.protect = async (req, res, next) => {
  */
 exports.restrictTo = (...roles) => {
   return (req, res, next) => {
+    if (!req.user) {
+      return next(
+        new AppError("You are not logged in. Please log in to access.", 401)
+      );
+    }
     if (!roles.includes(req.user.role)) {
       return next(
         new AppError("You do not have permission to perform this action", 403)

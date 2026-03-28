@@ -8,5 +8,6 @@ router.get("/grouped", protect, mealController.getMealsGrouped);
 router.get("/category/:category", protect, mealController.getMealsByCategory);
 router.get("/:id", protect, mealController.getMealDetails);
 router.post("/", protect, mealController.createMeal);
+router.put("/:id", protect, mealController.updateMeal);
 
 module.exports = router;

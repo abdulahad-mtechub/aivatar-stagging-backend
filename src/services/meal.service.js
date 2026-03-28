@@ -43,6 +43,110 @@ class MealService {
   }
 
   /**
+   * Update meal + optional energy (partial merge). Caller must enforce ownership/admin.
+   */
+  static async update(mealId, mealData) {
+    try {
+      const mealResult = await db.query("SELECT * FROM meals WHERE id = $1", [mealId]);
+      const meal = mealResult.rows[0];
+      if (!meal) return null;
+
+      const merged = {
+        title: mealData.title !== undefined ? mealData.title : meal.title,
+        description:
+          mealData.description !== undefined ? mealData.description : meal.description,
+        image_url: mealData.image_url !== undefined ? mealData.image_url : meal.image_url,
+        category: mealData.category !== undefined ? mealData.category : meal.category,
+        preparation_time:
+          mealData.preparation_time !== undefined
+            ? mealData.preparation_time
+            : meal.preparation_time,
+        complexity:
+          mealData.complexity !== undefined ? mealData.complexity : meal.complexity,
+        quantity: mealData.quantity !== undefined ? mealData.quantity : meal.quantity,
+      };
+
+      const dup = await db.query(
+        `SELECT id FROM meals
+         WHERE user_id = $1
+           AND LOWER(title) = LOWER($2)
+           AND LOWER(COALESCE(category, '')) = LOWER(COALESCE($3::text, ''))
+           AND id != $4`,
+        [meal.user_id, merged.title, merged.category, mealId]
+      );
+      if (dup.rows.length > 0) {
+        throw new Error(
+          `A meal with the title "${merged.title}" already exists in the "${merged.category}" category`
+        );
+      }
+
+      await db.query(
+        `UPDATE meals SET
+          title = $1,
+          description = $2,
+          image_url = $3,
+          category = $4,
+          preparation_time = $5,
+          complexity = $6,
+          quantity = $7,
+          updated_at = NOW()
+         WHERE id = $8`,
+        [
+          merged.title,
+          merged.description,
+          merged.image_url,
+          merged.category,
+          merged.preparation_time,
+          merged.complexity,
+          merged.quantity,
+          mealId,
+        ]
+      );
+
+      if (mealData.energy !== undefined && mealData.energy !== null) {
+        const e = mealData.energy;
+        if (meal.energy_id) {
+          await db.query(
+            `UPDATE meal_energy SET
+              calories = COALESCE($1, calories),
+              protein = COALESCE($2, protein),
+              carbs = COALESCE($3, carbs),
+              fats = COALESCE($4, fats)
+             WHERE id = $5`,
+            [
+              e.calories !== undefined ? e.calories : null,
+              e.protein !== undefined ? e.protein : null,
+              e.carbs !== undefined ? e.carbs : null,
+              e.fats !== undefined ? e.fats : null,
+              meal.energy_id,
+            ]
+          );
+        } else {
+          const energyResult = await db.query(
+            "INSERT INTO meal_energy (calories, protein, carbs, fats) VALUES ($1, $2, $3, $4) RETURNING id",
+            [
+              e.calories ?? 0,
+              e.protein ?? 0,
+              e.carbs ?? 0,
+              e.fats ?? 0,
+            ]
+          );
+          const energyId = energyResult.rows[0].id;
+          await db.query("UPDATE meals SET energy_id = $1, updated_at = NOW() WHERE id = $2", [
+            energyId,
+            mealId,
+          ]);
+        }
+      }
+
+      return this.findById(mealId);
+    } catch (error) {
+      logger.error(`Error updating meal: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
    * Find meal by ID with energy details
    */
   static async findById(id) {

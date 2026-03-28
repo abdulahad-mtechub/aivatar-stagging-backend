@@ -1,5 +1,15 @@
 const db = require("../config/database");
 const logger = require("../utils/logger");
+const AppError = require("../utils/appError");
+
+function isUniqueTitleViolation(error) {
+  return error && error.code === "23505";
+}
+
+/** Same normalization as DB index uq_badges_title_normalized */
+function normalizeBadgeTitle(title) {
+  return String(title ?? "").trim().toLowerCase();
+}
 
 /**
  * BadgeService - handles badge management and user badge assignment
@@ -23,7 +33,18 @@ class BadgeService {
    */
   static async createBadge(data) {
     const { title, max_points, badge_image, color, color_value } = data;
+    const key = normalizeBadgeTitle(title);
+    if (!key) {
+      throw new AppError("Badge title is required", 400);
+    }
     try {
+      const dup = await db.query(
+        `SELECT id FROM badges WHERE LOWER(TRIM(title)) = $1 LIMIT 1`,
+        [key]
+      );
+      if (dup.rows.length > 0) {
+        throw new AppError(`A badge with title "${title}" already exists`, 400);
+      }
       const result = await db.query(
         `INSERT INTO badges (title, max_points, badge_image, color, color_value) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
         [title, max_points, badge_image, color, color_value]
@@ -31,6 +52,9 @@ class BadgeService {
       return result.rows[0];
     } catch (error) {
       logger.error(`Error creating badge: ${error.message}`);
+      if (isUniqueTitleViolation(error)) {
+        throw new AppError(`A badge with title "${title}" already exists`, 400);
+      }
       throw error;
     }
   }
@@ -41,6 +65,19 @@ class BadgeService {
   static async updateBadge(id, data) {
     const { title, max_points, badge_image, color, color_value } = data;
     try {
+      if (title !== undefined && title !== null) {
+        const key = normalizeBadgeTitle(title);
+        if (!key) {
+          throw new AppError("Badge title cannot be empty", 400);
+        }
+        const dup = await db.query(
+          `SELECT id FROM badges WHERE LOWER(TRIM(title)) = $1 AND id != $2 LIMIT 1`,
+          [key, id]
+        );
+        if (dup.rows.length > 0) {
+          throw new AppError(`A badge with title "${title}" already exists`, 400);
+        }
+      }
       const result = await db.query(
         `UPDATE badges SET
           title = COALESCE($1, title),
@@ -55,6 +92,14 @@ class BadgeService {
       return result.rows[0] || null;
     } catch (error) {
       logger.error(`Error updating badge: ${error.message}`);
+      if (isUniqueTitleViolation(error)) {
+        throw new AppError(
+          title !== undefined && title !== null
+            ? `A badge with title "${title}" already exists`
+            : "Badge title must be unique",
+          400
+        );
+      }
       throw error;
     }
   }

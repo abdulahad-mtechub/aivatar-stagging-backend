@@ -1,0 +1,152 @@
+{
+  "info": {
+    "name": "Aivatar — Demo Videos",
+    "description": "User: GET /api/demo-videos (JWT). Admin: all under /api/admin/demo-videos (admin JWT). Mount applies protect so unauthenticated requests never reach handlers.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3058" },
+    { "key": "adminToken", "value": "" },
+    { "key": "userToken", "value": "" },
+    { "key": "videoId", "value": "1" }
+  ],
+  "item": [
+    {
+      "name": "User (active only)",
+      "item": [
+        {
+          "name": "List active demo videos",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/demo-videos"
+          }
+        },
+        {
+          "name": "Get active demo video by id",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/demo-videos/{{videoId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin (all videos)",
+      "item": [
+        {
+          "name": "List all (active + inactive)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/demo-videos"
+          }
+        },
+        {
+          "name": "Get any video by id",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/demo-videos/{{videoId}}"
+          }
+        },
+        {
+          "name": "Create demo video",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}",
+                "type": "text"
+              },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Welcome tour\",\n  \"description\": \"Short app overview\",\n  \"video_url\": \"https://example.com/video.mp4\",\n  \"image_url\": \"https://example.com/thumb.jpg\",\n  \"is_active\": true\n}"
+            },
+            "url": "{{baseUrl}}/api/admin/demo-videos"
+          }
+        },
+        {
+          "name": "Create demo video (minimal — no image)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}",
+                "type": "text"
+              },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Minimal video\",\n  \"video_url\": \"https://example.com/clip.mp4\"\n}"
+            },
+            "url": "{{baseUrl}}/api/admin/demo-videos"
+          }
+        },
+        {
+          "name": "Update demo video",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}",
+                "type": "text"
+              },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Updated title\",\n  \"is_active\": false\n}"
+            },
+            "url": "{{baseUrl}}/api/admin/demo-videos/{{videoId}}"
+          }
+        },
+        {
+          "name": "Delete demo video",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/demo-videos/{{videoId}}"
+          }
+        }
+      ]
+    }
+  ]
+}

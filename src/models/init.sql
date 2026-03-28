@@ -403,6 +403,8 @@ CREATE TABLE IF NOT EXISTS reward_management (
   updated_at TIMESTAMP DEFAULT NOW()
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS uq_reward_management_name_normalized ON reward_management (LOWER(TRIM(name)));
+
 -- 2. User Earned Reward Points (Earnings Log)
 CREATE TABLE IF NOT EXISTS user_earned_reward_points (
   id SERIAL PRIMARY KEY,
@@ -466,6 +468,7 @@ CREATE INDEX IF NOT EXISTS idx_redeem_user_id ON redeem_coin_history(user_id);
 CREATE INDEX IF NOT EXISTS idx_points_tx_user_id ON points_transaction(user_id);
 CREATE INDEX IF NOT EXISTS idx_points_tx_type ON points_transaction(type);
 CREATE INDEX IF NOT EXISTS idx_badges_max_points ON badges(max_points);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_badges_title_normalized ON badges (LOWER(TRIM(title)));
 CREATE INDEX IF NOT EXISTS idx_user_streaks_user_id ON user_streaks(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_streaks_is_streak ON user_streaks(is_streak);
 CREATE INDEX IF NOT EXISTS idx_user_streaks_added_date ON user_streaks(steak_added_date);
@@ -486,3 +489,21 @@ CREATE TABLE IF NOT EXISTS activity_log (
 CREATE INDEX IF NOT EXISTS idx_activity_log_user_id ON activity_log(user_id);
 CREATE INDEX IF NOT EXISTS idx_activity_log_action_type ON activity_log(action_type);
 CREATE INDEX IF NOT EXISTS idx_activity_log_created_at ON activity_log(created_at);
+
+-- ==========================================
+-- Demo videos (admin: all; users: active only)
+-- ==========================================
+
+CREATE TABLE IF NOT EXISTS demo_videos (
+  id SERIAL PRIMARY KEY,
+  title VARCHAR(255) NOT NULL,
+  description TEXT,
+  video_url TEXT NOT NULL,
+  image_url TEXT,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_demo_videos_is_active ON demo_videos(is_active);
+CREATE INDEX IF NOT EXISTS idx_demo_videos_created_at ON demo_videos(created_at DESC);

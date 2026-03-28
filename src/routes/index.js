@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const { protect } = require("../middlewares/auth.middleware");
 const authRoutes = require("./auth.routes");
 const userRoutes = require("./user.routes");
 const profileRoutes = require("./profile.routes");
@@ -21,6 +22,9 @@ const notificationRoutes = require("./notification.routes");
 const reminderRoutes = require("./reminder.routes");
 const stripeRoutes = require("./stripe.routes");
 const activityRoutes = require("./activity.routes");
+const demoVideoRoutes = require("./demoVideo.routes");
+const adminDemoVideoRoutes = require("./adminDemoVideo.routes");
+const analyticsRoutes = require("./analytics.routes");
 
 // Mount route modules
 router.use("/auth", authRoutes);
@@ -44,6 +48,9 @@ router.use("/notifications", notificationRoutes);
 router.use("/reminders", reminderRoutes);
 router.use("/stripe", stripeRoutes);
 router.use("/activity", activityRoutes);
+router.use("/analytics", analyticsRoutes);
+router.use("/demo-videos", protect, demoVideoRoutes);
+router.use("/admin/demo-videos", adminDemoVideoRoutes);
 
 module.exports = router;
 
