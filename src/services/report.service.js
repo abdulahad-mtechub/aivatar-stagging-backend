@@ -44,9 +44,11 @@ class ReportService {
         nutrition[key] = parseFloat(nutrition[key]) || 0;
       });
 
-      // 3. Get Streak Info
-      const streaks = await StreakService.getSummary(userId);
-      const generalStreak = streaks.find(s => s.activity_type === 'general') || { current_streak: 0 };
+      // 3. Get Streak Info (getSummary returns { summary: [...] })
+      const streakResult = await StreakService.getSummary(userId);
+      const summaryList = Array.isArray(streakResult?.summary) ? streakResult.summary : [];
+      const generalStreak =
+        summaryList.find((s) => s.activity_type === "general") || { current_streak_days: 0 };
 
       // 4. Calculate Progress
       const progress = {
@@ -78,7 +80,7 @@ class ReportService {
       return {
           date,
           nutrition: progress,
-          streak: generalStreak.current_streak,
+          streak: generalStreak.current_streak_days ?? 0,
           target_met_percent: Math.min(100, targetMetPercent)
       };
     } catch (error) {

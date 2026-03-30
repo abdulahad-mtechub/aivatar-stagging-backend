@@ -66,11 +66,48 @@ class UserService {
     });
   }
 
+  /**
+   * Whitelist ORDER BY for /users/with-profile (SQL injection safe).
+   * sort_by: created_at | updated_at | id | name | email | block_status | is_verified | profile_created_at | plan_key
+   */
+  static buildWithProfileSort(options = {}) {
+    const rawKey = String(options.sort_by ?? options.sortBy ?? "created_at")
+      .trim()
+      .toLowerCase();
+    const rawOrder = String(options.sort_order ?? options.sortOrder ?? "desc")
+      .trim()
+      .toLowerCase();
+
+    const columnMap = {
+      created_at: "u.created_at",
+      updated_at: "u.updated_at",
+      id: "u.id",
+      name: "u.name",
+      email: "u.email",
+      block_status: "u.block_status",
+      is_verified: "u.is_verified",
+      profile_created_at: "p.created_at",
+      plan_key: "p.plan_key",
+    };
+
+    const orderSql = rawOrder === "asc" ? "ASC" : "DESC";
+    const colSql = columnMap[rawKey] || columnMap.created_at;
+    const effectiveKey = columnMap[rawKey] ? rawKey : "created_at";
+
+    return {
+      orderByClause: `${colSql} ${orderSql}, u.id DESC`,
+      sort_by: effectiveKey,
+      sort_order: orderSql === "ASC" ? "asc" : "desc",
+    };
+  }
+
   static async getUsersWithProfiles(whereSql, whereParams, options = {}) {
     const { page = 1, limit = 10 } = options;
     const pageNum = parseInt(page, 10);
     const limitNum = parseInt(limit, 10);
     const offset = (pageNum - 1) * limitNum;
+
+    const { orderByClause, sort_by, sort_order } = this.buildWithProfileSort(options);
 
     const countRes = await db.query(
       `SELECT COUNT(*) AS count
@@ -105,7 +142,7 @@ class UserService {
        FROM users u
        LEFT JOIN profiles p ON p.user_id = u.id AND p.deleted_at IS NULL
        WHERE ${whereSql}
-       ORDER BY u.created_at DESC
+       ORDER BY ${orderByClause}
        LIMIT $${whereParams.length + 1} OFFSET $${whereParams.length + 2}`,
       params
     );
@@ -117,6 +154,8 @@ class UserService {
         limit: limitNum,
         total,
         pages: Math.ceil(total / limitNum),
+        sort_by,
+        sort_order,
       },
     };
   }

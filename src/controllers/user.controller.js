@@ -23,10 +23,22 @@ exports.getAllUsers = asyncHandler(async (req, res, next) => {
  * Admin: Get all users with profile data (non-deleted)
  */
 exports.getAllUsersWithProfile = asyncHandler(async (req, res, next) => {
-  const { page = 1, limit = 10, status = "mixed" } = req.query;
+  const {
+    page = 1,
+    limit = 10,
+    status = "mixed",
+    sort_by,
+    sort_order,
+  } = req.query;
   let result;
   try {
-    result = await UserService.findAllWithProfiles({ page, limit, status });
+    result = await UserService.findAllWithProfiles({
+      page,
+      limit,
+      status,
+      sort_by,
+      sort_order,
+    });
   } catch (error) {
     return next(new AppError(error.message, 400));
   }

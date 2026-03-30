@@ -5,6 +5,15 @@ const logger = require("../utils/logger");
  * Meal Plan Service - Handles flat meal plan table
  */
 class MealPlanService {
+  static async findSlotById(slotId) {
+    try {
+      const result = await db.query("SELECT * FROM meal_plans WHERE id = $1", [slotId]);
+      return result.rows[0] || null;
+    } catch (error) {
+      logger.error(`Error finding meal plan slot: ${error.message}`);
+      throw error;
+    }
+  }
 
   /**
    * Add a single meal slot to the user's plan

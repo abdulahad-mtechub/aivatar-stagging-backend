@@ -1,5 +1,14 @@
 const db = require("../config/database");
 const logger = require("../utils/logger");
+const AppError = require("../utils/appError");
+
+function isUniqueViolation(error) {
+  return error && error.code === "23505";
+}
+
+function normalizeRuleName(name) {
+  return String(name ?? "").trim().toLowerCase();
+}
 
 /**
  * RewardService - handles reward rules and points earning
@@ -47,7 +56,18 @@ class RewardService {
       reward_type, type = "generic", points_amount,
       frequency_limit, events_per_day = 1, is_active = true
     } = data;
+    const key = normalizeRuleName(name);
+    if (!key) {
+      throw new AppError("Rule name is required", 400);
+    }
     try {
+      const dup = await db.query(
+        `SELECT id FROM reward_management WHERE LOWER(TRIM(name)) = $1 LIMIT 1`,
+        [key]
+      );
+      if (dup.rows.length > 0) {
+        throw new AppError(`A reward rule named "${name}" already exists`, 400);
+      }
       const result = await db.query(
         `INSERT INTO reward_management 
           (name, description, module_type, trigger_event, reward_type, type, points_amount, frequency_limit, events_per_day, is_active)
@@ -57,6 +77,9 @@ class RewardService {
       return result.rows[0];
     } catch (error) {
       logger.error(`Error creating reward rule: ${error.message}`);
+      if (isUniqueViolation(error)) {
+        throw new AppError(`A reward rule named "${name}" already exists`, 400);
+      }
       throw error;
     }
   }
@@ -64,6 +87,19 @@ class RewardService {
   static async updateRule(id, data) {
     const { name, description, module_type, trigger_event, reward_type, type, points_amount, frequency_limit, events_per_day, is_active } = data;
     try {
+      if (name !== undefined && name !== null) {
+        const key = normalizeRuleName(name);
+        if (!key) {
+          throw new AppError("Rule name cannot be empty", 400);
+        }
+        const dup = await db.query(
+          `SELECT id FROM reward_management WHERE LOWER(TRIM(name)) = $1 AND id != $2 LIMIT 1`,
+          [key, id]
+        );
+        if (dup.rows.length > 0) {
+          throw new AppError(`A reward rule named "${name}" already exists`, 400);
+        }
+      }
       const result = await db.query(
         `UPDATE reward_management SET
           name = COALESCE($1, name),
@@ -83,6 +119,14 @@ class RewardService {
       return result.rows[0] || null;
     } catch (error) {
       logger.error(`Error updating reward rule: ${error.message}`);
+      if (isUniqueViolation(error)) {
+        throw new AppError(
+          name !== undefined && name !== null
+            ? `A reward rule named "${name}" already exists`
+            : "Reward rule name must be unique",
+          400
+        );
+      }
       throw error;
     }
   }
