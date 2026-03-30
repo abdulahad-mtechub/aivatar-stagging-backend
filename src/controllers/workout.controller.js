@@ -1,6 +1,7 @@
 const ExerciseService = require("../services/exercise.service");
 const WorkoutService = require("../services/workout.service");
 const WorkoutSessionService = require("../services/workoutSession.service");
+const UserService = require("../services/user.service");
 const { successResponse, errorResponse } = require("../utils/apiResponse");
 const asyncHandler = require("../utils/asyncHandler");
 
@@ -8,6 +9,10 @@ const asyncHandler = require("../utils/asyncHandler");
  * Workout Controller - handles workout, exercise, and logging requests
  */
 class WorkoutController {
+  static _parsePositiveInt(value) {
+    const n = Number.parseInt(value, 10);
+    return Number.isInteger(n) && n > 0 ? n : null;
+  }
   /**
    * Workout Home (First screen)
    * Returns planned workout(s) + missed + recommendations in one payload
@@ -35,14 +40,18 @@ class WorkoutController {
    * Get all workout templates
    */
   static getAllWorkouts = asyncHandler(async (req, res) => {
-    const workouts = await WorkoutService.findAll({
+    const result = await WorkoutService.findAll({
       include_exercises: req.query.include_exercises !== "false",
-      limit: req.query.limit || 50,
-      offset: req.query.offset || 0,
+      page: req.query.page,
+      limit: req.query.limit,
+      q: req.query.q,
+      sort_by: req.query.sort_by,
+      sort_order: req.query.sort_order,
+      not_pagination: req.query.not_pagination,
     });
     return successResponse(res, {
       message: "Workouts fetched successfully",
-      data: workouts,
+      data: result,
     });
   });
 
@@ -145,13 +154,23 @@ class WorkoutController {
    * Complete workout and get summary
    */
   static completeSession = asyncHandler(async (req, res) => {
-    const { session_id } = req.body;
-
-    if (!session_id) {
-      return errorResponse(res, "Session ID is required", 400);
+    const { session_id, workout_id, start_time, note } = req.body;
+    const userId = req.user.id;
+    if (!session_id && !workout_id) {
+      return errorResponse(
+        res,
+        "Provide session_id, or send workout_id with optional start_time and note",
+        400
+      );
     }
 
-    const summary = await WorkoutSessionService.completeSession(session_id);
+    const summary = await WorkoutSessionService.completeSession({
+      userId,
+      sessionId: session_id || null,
+      workoutId: workout_id || null,
+      startTime: start_time || null,
+      note: note ?? null,
+    });
 
     return successResponse(res, {
       message: "Workout completed successfully",
@@ -213,10 +232,45 @@ class WorkoutController {
   });
 
   /**
+   * Delete exercise (soft delete)
+   */
+  static deleteExercise = asyncHandler(async (req, res) => {
+    const exerciseId = Number(req.params.id);
+    if (!Number.isInteger(exerciseId) || exerciseId <= 0) {
+      return errorResponse(res, "Invalid exercise id", 400);
+    }
+
+    const deleted = await ExerciseService.deleteById(exerciseId);
+    if (!deleted) {
+      return errorResponse(res, "Exercise not found", 404);
+    }
+
+    return successResponse(res, {
+      message: "Exercise deleted successfully",
+      data: deleted,
+    });
+  });
+
+  /**
    * Create a new workout (AI-Driven from Frontend)
    */
   static createWorkout = asyncHandler(async (req, res) => {
-    const workout = await WorkoutService.create(req.body);
+    const payload = { ...req.body };
+
+    if (req.user.role === "admin") {
+      const targetUserId = WorkoutController._parsePositiveInt(payload.user_id);
+      if (!targetUserId) {
+        return errorResponse(res, "user_id is required for admin", 400);
+      }
+      const user = await UserService.findById(targetUserId);
+      if (!user) return errorResponse(res, "User not found", 404);
+      payload.user_id = targetUserId;
+    } else {
+      // Non-admin can only create for self
+      payload.user_id = req.user.id;
+    }
+
+    const workout = await WorkoutService.create(payload);
     return successResponse(res, {
       message: "Workout created successfully",
       data: workout,

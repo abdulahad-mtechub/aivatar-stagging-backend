@@ -1,5 +1,7 @@
 const db = require("../config/database");
 const logger = require("../utils/logger");
+const { validatePaginationParams, generatePagination } = require("../utils/pagination");
+const { parseBoolean, buildPartialSearchClause } = require("../utils/partialSearch");
 
 class ExerciseService {
   /**
@@ -22,26 +24,75 @@ class ExerciseService {
    * List all exercises with pagination
    */
   static async findAll(options = {}) {
-    const { page = 1, limit = 10, category } = options;
-    const offset = (page - 1) * limit;
-    
-    let query = "SELECT * FROM exercises WHERE deleted_at IS NULL";
-    const params = [limit, offset];
+    const {
+      page = 1,
+      limit = 10,
+      category,
+      q,
+      sort_by = "title",
+      sort_order = "asc",
+      not_pagination,
+    } = options;
+
+    const disablePagination = parseBoolean(not_pagination, false);
+    const { page: pageNum, limit: limitNum, offset } = validatePaginationParams(page, limit);
+
+    const sortColumns = {
+      id: "id",
+      title: "title",
+      category: "category",
+      difficulty: "difficulty",
+      duration_seconds: "duration_seconds",
+      created_at: "created_at",
+    };
+    const safeSortBy = sortColumns[String(sort_by || "").toLowerCase()] || "title";
+    const safeSortOrder = String(sort_order || "").toLowerCase() === "desc" ? "DESC" : "ASC";
+
+    const whereParts = ["deleted_at IS NULL"];
+    const whereParams = [];
 
     if (category) {
-      query += " AND category = $3";
-      params.push(category);
+      whereParams.push(category);
+      whereParts.push(`category = $${whereParams.length}`);
     }
 
-    query += " ORDER BY title ASC LIMIT $1 OFFSET $2";
+    const search = buildPartialSearchClause(
+      ["title", "description", "category", "target_muscle_group"],
+      q,
+      whereParams.length + 1
+    );
+    if (search.clause) {
+      whereParts.push(search.clause);
+      whereParams.push(...search.params);
+    }
+
+    const whereSql = whereParts.join(" AND ");
 
     try {
-      const countRes = await db.query("SELECT COUNT(*) FROM exercises WHERE deleted_at IS NULL" + (category ? " AND category = $1" : ""), category ? [category] : []);
-      const result = await db.query(query, params);
-      
+      const countRes = await db.query(`SELECT COUNT(*)::int AS total FROM exercises WHERE ${whereSql}`, whereParams);
+      const total = countRes.rows[0]?.total || 0;
+
+      const dataParams = [...whereParams];
+      let dataSql = `SELECT * FROM exercises WHERE ${whereSql} ORDER BY ${safeSortBy} ${safeSortOrder}, id DESC`;
+      if (!disablePagination) {
+        dataParams.push(limitNum, offset);
+        dataSql += ` LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`;
+      }
+
+      const result = await db.query(dataSql, dataParams);
+
       return {
         exercises: result.rows,
-        total: parseInt(countRes.rows[0].count, 10)
+        total,
+        ...(disablePagination
+          ? {}
+          : {
+              pagination: {
+                ...generatePagination(pageNum, limitNum, total),
+                sort_by: Object.keys(sortColumns).find((k) => sortColumns[k] === safeSortBy) || "title",
+                sort_order: safeSortOrder.toLowerCase(),
+              },
+            }),
       };
     } catch (error) {
       logger.error(`Error finding exercises: ${error.message}`);
@@ -56,7 +107,6 @@ class ExerciseService {
     const {
       title,
       description,
-      media_url,
       video_url,
       thumbnail_url,
       audio_url,
@@ -64,18 +114,15 @@ class ExerciseService {
       category,
       target_muscle_group,
       duration_seconds,
-      equipment,
       difficulty,
       default_rest_time_seconds,
     } = exerciseData;
 
-    const normalizedVideoUrl = video_url || media_url || null;
     try {
       const result = await db.query(
         `INSERT INTO exercises (
            title,
            description,
-           media_url,
            video_url,
            thumbnail_url,
            audio_url,
@@ -83,24 +130,21 @@ class ExerciseService {
            category,
            target_muscle_group,
            duration_seconds,
-           equipment,
            difficulty,
            default_rest_time_seconds
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          RETURNING *`,
         [
           title,
           description,
-          media_url || normalizedVideoUrl,
-          normalizedVideoUrl,
+          video_url || null,
           thumbnail_url,
           audio_url,
           instructions || {},
           category,
           target_muscle_group,
           duration_seconds,
-          equipment,
           difficulty,
           default_rest_time_seconds,
         ]
@@ -109,6 +153,40 @@ class ExerciseService {
     } catch (error) {
       logger.error(`Error creating exercise: ${error.message}`);
       throw error;
+    }
+  }
+
+  /**
+   * Soft delete exercise and detach it from workouts
+   */
+  static async deleteById(id) {
+    const client = await db.pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const deletedExercise = await client.query(
+        `UPDATE exercises
+         SET deleted_at = NOW(), updated_at = NOW()
+         WHERE id = $1 AND deleted_at IS NULL
+         RETURNING *`,
+        [id]
+      );
+
+      if (!deletedExercise.rows[0]) {
+        await client.query("ROLLBACK");
+        return null;
+      }
+
+      await client.query("DELETE FROM workout_exercises WHERE exercise_id = $1", [id]);
+
+      await client.query("COMMIT");
+      return deletedExercise.rows[0];
+    } catch (error) {
+      await client.query("ROLLBACK");
+      logger.error(`Error deleting exercise: ${error.message}`);
+      throw error;
+    } finally {
+      client.release();
     }
   }
 }

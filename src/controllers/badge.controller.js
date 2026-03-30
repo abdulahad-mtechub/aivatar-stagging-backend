@@ -7,8 +7,15 @@ class BadgeController {
   // ─── User Facing ──────────────────────────────────────────────────────────
 
   static getAllBadges = asyncHandler(async (req, res) => {
-    const badges = await BadgeService.getAllBadges();
-    return successResponse(res, { message: "Badges fetched", data: badges });
+    const result = await BadgeService.getAllBadges({
+      page: req.query.page,
+      limit: req.query.limit,
+      q: req.query.q,
+      sort_by: req.query.sort_by,
+      sort_order: req.query.sort_order,
+      not_pagination: req.query.not_pagination,
+    });
+    return successResponse(res, { message: "Badges fetched", data: result });
   });
 
   static getMyBadge = asyncHandler(async (req, res) => {

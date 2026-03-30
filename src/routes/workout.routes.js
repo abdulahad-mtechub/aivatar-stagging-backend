@@ -10,6 +10,8 @@ const { successResponse } = require("../utils/apiResponse");
 // --- Exercise Content APIs ---
 // Create Exercise (AI-Driven from Frontend)
 router.post("/exercises", protect, restrictTo("admin"), WorkoutController.createExercise);
+// Delete exercise (admin only)
+router.delete("/exercises/:id", protect, restrictTo("admin"), WorkoutController.deleteExercise);
 // Get list of exercises
 router.get("/exercises", protect, asyncHandler(async (req, res) => {
   const result = await ExerciseService.findAll(req.query);
@@ -22,7 +24,7 @@ router.get("/exercises/:id/previous-session", protect, WorkoutController.getExer
 
 // --- Workout Template APIs ---
 // Create Workout (AI-Driven from Frontend)
-router.post("/", protect, restrictTo("admin"), WorkoutController.createWorkout);
+router.post("/", protect, WorkoutController.createWorkout);
 // Workout Home (first page aggregated payload)
 router.get("/home", protect, WorkoutController.getWorkoutHome);
 // Quick workouts (<= max duration)

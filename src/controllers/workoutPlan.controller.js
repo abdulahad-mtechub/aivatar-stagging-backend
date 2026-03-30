@@ -21,7 +21,6 @@ exports.addSlot = asyncHandler(async (req, res, next) => {
     week_number,
     day_of_week,
     plan_date: req.body.plan_date,
-    slot_type: req.body.slot_type,
   });
 
   return apiResponse(res, 201, "Workout slot added to plan successfully", slot);
@@ -123,9 +122,8 @@ exports.restDay = asyncHandler(async (req, res, next) => {
 });
 
 /**
- * Quick session related to a missed slot
- * POST /api/workout-plans/:id/quick-session
- * Body: { "workout_id": 5 }
+ * Quick session options for a missed slot
+ * GET /api/workout-plans/:id/quick-session?max_duration_minutes=20&limit=20
  */
 exports.quickSession = asyncHandler(async (req, res, next) => {
   const slotId = Number(req.params.id);
@@ -133,18 +131,11 @@ exports.quickSession = asyncHandler(async (req, res, next) => {
     return next(new AppError("Invalid slot id", 400));
   }
 
-  const workoutId = Number(req.body.workout_id);
-  if (!Number.isInteger(workoutId) || workoutId <= 0) {
-    return next(new AppError("workout_id is required", 400));
-  }
-
-  const result = await WorkoutPlanService.createQuickSessionForSlot(
-    slotId,
-    req.user.id,
-    workoutId
-  );
+  const result = await WorkoutPlanService.getQuickSessionOptions(slotId, req.user.id, {
+    max_duration_minutes: req.query?.max_duration_minutes || 20,
+    limit: req.query?.limit || 20,
+  });
   if (!result) return next(new AppError("Slot not found or not yours", 404));
-
-  return apiResponse(res, 201, "Quick session created successfully", result);
+  return apiResponse(res, 200, "Quick session options retrieved successfully", result);
 });
 

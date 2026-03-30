@@ -1,0 +1,6 @@
+BEGIN;
+
+ALTER TABLE workouts DROP COLUMN IF EXISTS slot_type;
+
+COMMIT;
+

@@ -67,8 +67,15 @@ async function resolveOwnerIdForCreate(req) {
  */
 exports.getMeals = asyncHandler(async (req, res, next) => {
   const targetUserId = await resolveTargetUserIdForRead(req);
-  const meals = await MealService.findAll(targetUserId);
-  return apiResponse(res, 200, "Meals retrieved successfully", meals);
+  const result = await MealService.findAll(targetUserId, {
+    page: req.query.page,
+    limit: req.query.limit,
+    q: req.query.q,
+    sort_by: req.query.sort_by,
+    sort_order: req.query.sort_order,
+    not_pagination: req.query.not_pagination,
+  });
+  return apiResponse(res, 200, "Meals retrieved successfully", result);
 });
 
 /**

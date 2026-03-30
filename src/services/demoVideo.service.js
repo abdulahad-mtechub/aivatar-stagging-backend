@@ -1,5 +1,7 @@
 const db = require("../config/database");
 const logger = require("../utils/logger");
+const { validatePaginationParams, generatePagination } = require("../utils/pagination");
+const { parseBoolean, buildPartialSearchClause } = require("../utils/partialSearch");
 
 class DemoVideoService {
   static async listActive() {
@@ -32,14 +34,65 @@ class DemoVideoService {
     }
   }
 
-  static async listAllForAdmin() {
+  static async listAllForAdmin(options = {}) {
+    const {
+      page = 1,
+      limit = 10,
+      q,
+      sort_by = "created_at",
+      sort_order = "desc",
+      not_pagination,
+    } = options;
+    const disablePagination = parseBoolean(not_pagination, false);
+    const { page: pageNum, limit: limitNum, offset } = validatePaginationParams(page, limit);
+
+    const sortColumns = {
+      id: "id",
+      title: "title",
+      is_active: "is_active",
+      created_at: "created_at",
+      updated_at: "updated_at",
+    };
+    const safeSortBy = sortColumns[String(sort_by || "").toLowerCase()] || "created_at";
+    const safeSortOrder = String(sort_order || "").toLowerCase() === "asc" ? "ASC" : "DESC";
+
     try {
+      const search = buildPartialSearchClause(["title", "description"], q, 1);
+      const whereSql = search.clause ? `WHERE ${search.clause}` : "";
+
+      const countRes = await db.query(
+        `SELECT COUNT(*)::int AS total FROM demo_videos ${whereSql}`,
+        search.params
+      );
+      const total = countRes.rows[0]?.total || 0;
+
+      const params = [...search.params];
+      let paginationSql = "";
+      if (!disablePagination) {
+        params.push(limitNum, offset);
+        paginationSql = ` LIMIT $${params.length - 1} OFFSET $${params.length}`;
+      }
+
       const result = await db.query(
         `SELECT id, title, description, video_url, image_url, is_active, created_at, updated_at
          FROM demo_videos
-         ORDER BY created_at DESC`
+         ${whereSql}
+         ORDER BY ${safeSortBy} ${safeSortOrder}, id DESC
+         ${paginationSql}`,
+        params
       );
-      return result.rows;
+      return {
+        videos: result.rows,
+        ...(disablePagination
+          ? {}
+          : {
+              pagination: {
+                ...generatePagination(pageNum, limitNum, total),
+                sort_by: Object.keys(sortColumns).find((k) => sortColumns[k] === safeSortBy) || "created_at",
+                sort_order: safeSortOrder.toLowerCase(),
+              },
+            }),
+      };
     } catch (error) {
       logger.error(`Error listing demo videos for admin: ${error.message}`);
       throw error;
