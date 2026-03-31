@@ -87,6 +87,13 @@ function normalizeMoneyCents(n) {
   return Math.round(x);
 }
 
+function getDefaultTrialDays() {
+  const raw = process.env.STRIPE_TRIAL_DAYS;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isInteger(parsed) || parsed < 0) return 7;
+  return parsed;
+}
+
 class StripeService {
   /**
    * Create Stripe Checkout session (subscription mode).
@@ -100,6 +107,7 @@ class StripeService {
     const {
       mode = "subscription",
       quantity = 1,
+      trial_days = getDefaultTrialDays(),
       success_url,
       cancel_url,
       price_id,
@@ -137,6 +145,21 @@ class StripeService {
     params.append(`line_items[0][price]`, finalPriceId);
     params.append(`line_items[0][quantity]`, String(quantity));
 
+    // Ensure card/payment method is collected at checkout ("upfront"),
+    // even when a free trial is active.
+    params.append("payment_method_collection", "always");
+
+    // 7-day free trial for subscription mode (unless caller explicitly sends 0).
+    const parsedTrialDays = Number.parseInt(trial_days, 10);
+    if (mode === "subscription" && Number.isInteger(parsedTrialDays) && parsedTrialDays > 0) {
+      params.append("subscription_data[trial_period_days]", String(parsedTrialDays));
+      // If checkout somehow ends without payment method, cancel at trial end.
+      params.append(
+        "subscription_data[trial_settings][end_behavior][missing_payment_method]",
+        "cancel"
+      );
+    }
+
     // Save metadata so verify can pick plan info by session_id.
     if (userId) params.append("metadata[user_id]", String(userId));
     params.append("metadata[plan_key]", planKeyToStore);
@@ -156,6 +179,10 @@ class StripeService {
       session_id: out.id,
       checkout_url: out.url,
       plan_id: planIdToReturn,
+      trial_days:
+        mode === "subscription" && Number.isInteger(parsedTrialDays) && parsedTrialDays > 0
+          ? parsedTrialDays
+          : 0,
     };
   }
 
@@ -414,6 +441,251 @@ class StripeService {
       { params: { "expand[]": "subscription" } }
     );
     return { session };
+  }
+
+  static async cancelSubscription({ userId, reason, cancel_immediately = false }) {
+    const textReason = String(reason || "").trim();
+    if (!textReason) {
+      throw new AppError("Cancellation reason is required", 400);
+    }
+
+    const subRes = await db.query(
+      `SELECT s.*
+         FROM stripe_subscriptions s
+         JOIN stripe_transactions t ON t.id = s.transaction_id
+        WHERE t.user_id = $1
+        ORDER BY s.created_at DESC
+        LIMIT 1`,
+      [userId]
+    );
+    const sub = subRes.rows[0];
+    if (!sub?.stripe_subscription_id) {
+      throw new AppError("Active Stripe subscription not found for this user", 400);
+    }
+
+    const stripeSubscriptionId = sub.stripe_subscription_id;
+    const immediate = Boolean(cancel_immediately);
+    let stripeSubscription;
+
+    if (immediate) {
+      stripeSubscription = await stripeRequest(
+        "DELETE",
+        `/subscriptions/${encodeURIComponent(stripeSubscriptionId)}`,
+        {}
+      );
+    } else {
+      const params = new URLSearchParams();
+      params.append("cancel_at_period_end", "true");
+      stripeSubscription = await stripeRequest(
+        "POST",
+        `/subscriptions/${encodeURIComponent(stripeSubscriptionId)}`,
+        { form: params }
+      );
+    }
+
+    await db.query(
+      `UPDATE stripe_subscriptions
+          SET status = $1,
+              cancel_reason = $2,
+              cancel_requested_at = NOW(),
+              updated_at = NOW()
+        WHERE stripe_subscription_id = $3`,
+      [
+        stripeSubscription?.status || (immediate ? "canceled" : "active"),
+        textReason,
+        stripeSubscriptionId,
+      ]
+    );
+
+    return {
+      subscription_id: stripeSubscriptionId,
+      status: stripeSubscription?.status || (immediate ? "canceled" : "active"),
+      cancel_at_period_end: Boolean(stripeSubscription?.cancel_at_period_end) || !immediate,
+      reason: textReason,
+      canceled_immediately: immediate,
+    };
+  }
+
+  static async upgradeSubscription({
+    userId,
+    lookup_key,
+    price_id,
+    plan_id,
+  }) {
+    const requestedLookupKey = lookup_key ? String(lookup_key).trim() : null;
+    let nextPriceId = price_id ? String(price_id).trim() : null;
+    if (!nextPriceId && requestedLookupKey) {
+      nextPriceId = await findPriceIdByLookupKey(requestedLookupKey);
+      if (!nextPriceId) {
+        throw new AppError(
+          `lookup_key '${requestedLookupKey}' not found in Stripe prices`,
+          400
+        );
+      }
+    }
+    if (!nextPriceId) {
+      throw new AppError("price_id or valid lookup_key is required for upgrade", 400);
+    }
+
+    const subRes = await db.query(
+      `SELECT s.*
+         FROM stripe_subscriptions s
+         JOIN stripe_transactions t ON t.id = s.transaction_id
+        WHERE t.user_id = $1
+        ORDER BY s.created_at DESC
+        LIMIT 1`,
+      [userId]
+    );
+    const currentSub = subRes.rows[0];
+    if (!currentSub?.stripe_subscription_id) {
+      throw new AppError("Active Stripe subscription not found for this user", 400);
+    }
+
+    const stripeSubscriptionId = currentSub.stripe_subscription_id;
+    const stripeSub = await stripeRequest(
+      "GET",
+      `/subscriptions/${encodeURIComponent(stripeSubscriptionId)}`,
+      { params: { "expand[]": "items.data.price" } }
+    );
+    const itemId = stripeSub?.items?.data?.[0]?.id;
+    if (!itemId) {
+      throw new AppError("Stripe subscription item not found", 400);
+    }
+
+    const form = new URLSearchParams();
+    form.append("items[0][id]", itemId);
+    form.append("items[0][price]", nextPriceId);
+    form.append("proration_behavior", "create_prorations");
+    form.append("cancel_at_period_end", "false");
+
+    const upgraded = await stripeRequest(
+      "POST",
+      `/subscriptions/${encodeURIComponent(stripeSubscriptionId)}`,
+      { form }
+    );
+
+    const newPlanKey =
+      requestedLookupKey ||
+      (plan_id ? String(plan_id) : null) ||
+      currentSub.plan_key;
+
+    await db.query(
+      `UPDATE stripe_subscriptions
+          SET plan_key = $1,
+              status = $2,
+              current_period_end = to_timestamp($3),
+              updated_at = NOW()
+        WHERE stripe_subscription_id = $4`,
+      [
+        newPlanKey,
+        upgraded?.status || currentSub.status,
+        upgraded?.current_period_end || null,
+        stripeSubscriptionId,
+      ]
+    );
+
+    await db.query(
+      `UPDATE profiles
+          SET plan_key = $1,
+              updated_at = NOW()
+        WHERE user_id = $2`,
+      [newPlanKey, userId]
+    );
+
+    return {
+      subscription_id: stripeSubscriptionId,
+      previous_plan_key: currentSub.plan_key,
+      upgraded_plan_key: newPlanKey,
+      status: upgraded?.status || currentSub.status,
+      current_period_end: upgraded?.current_period_end || null,
+      proration_behavior: "create_prorations",
+    };
+  }
+
+  static async getUpgradePreview({ userId, lookup_key, price_id, plan_id }) {
+    const requestedLookupKey = lookup_key ? String(lookup_key).trim() : null;
+    let nextPriceId = price_id ? String(price_id).trim() : null;
+
+    if (!nextPriceId && requestedLookupKey) {
+      nextPriceId = await findPriceIdByLookupKey(requestedLookupKey);
+      if (!nextPriceId) {
+        throw new AppError(
+          `lookup_key '${requestedLookupKey}' not found in Stripe prices`,
+          400
+        );
+      }
+    }
+    if (!nextPriceId) {
+      throw new AppError("price_id or valid lookup_key is required for upgrade preview", 400);
+    }
+
+    const subRes = await db.query(
+      `SELECT s.*
+         FROM stripe_subscriptions s
+         JOIN stripe_transactions t ON t.id = s.transaction_id
+        WHERE t.user_id = $1
+        ORDER BY s.created_at DESC
+        LIMIT 1`,
+      [userId]
+    );
+    const currentSub = subRes.rows[0];
+    if (!currentSub?.stripe_subscription_id) {
+      throw new AppError("Active Stripe subscription not found for this user", 400);
+    }
+
+    const stripeSubscriptionId = currentSub.stripe_subscription_id;
+    const stripeSub = await stripeRequest(
+      "GET",
+      `/subscriptions/${encodeURIComponent(stripeSubscriptionId)}`,
+      { params: { "expand[]": "items.data.price" } }
+    );
+
+    const itemId = stripeSub?.items?.data?.[0]?.id;
+    const customerId = stripeSub?.customer;
+    if (!itemId || !customerId) {
+      throw new AppError("Unable to build upgrade preview for this subscription", 400);
+    }
+
+    const previewForm = new URLSearchParams();
+    previewForm.append("customer", String(customerId));
+    previewForm.append("subscription", String(stripeSubscriptionId));
+    previewForm.append("subscription_details[proration_behavior]", "create_prorations");
+    previewForm.append("subscription_details[items][0][id]", String(itemId));
+    previewForm.append("subscription_details[items][0][price]", String(nextPriceId));
+
+    const preview = await stripeRequest("POST", "/invoices/create_preview", {
+      form: previewForm,
+    });
+
+    const lineItems = Array.isArray(preview?.lines?.data) ? preview.lines.data : [];
+    const prorationLines = lineItems.filter((l) => Boolean(l?.proration));
+    const amountPositive = prorationLines
+      .filter((l) => Number(l.amount || 0) > 0)
+      .reduce((sum, l) => sum + Number(l.amount || 0), 0);
+    const amountNegative = prorationLines
+      .filter((l) => Number(l.amount || 0) < 0)
+      .reduce((sum, l) => sum + Math.abs(Number(l.amount || 0)), 0);
+
+    const newPlanKey =
+      requestedLookupKey ||
+      (plan_id ? String(plan_id) : null) ||
+      currentSub.plan_key;
+
+    return {
+      subscription_id: stripeSubscriptionId,
+      current_plan_key: currentSub.plan_key,
+      upgraded_plan_key: newPlanKey,
+      currency: preview?.currency || null,
+      proration: {
+        charged_amount: amountPositive,
+        credit_amount: amountNegative,
+        net_amount: Number(preview?.amount_due || 0),
+      },
+      amount_due_now: Number(preview?.amount_due || 0),
+      next_billing_amount: Number(preview?.total || 0),
+      period_end: preview?.period_end || null,
+      invoice_preview: preview,
+    };
   }
 }
 

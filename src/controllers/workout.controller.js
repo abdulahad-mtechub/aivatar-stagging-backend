@@ -232,6 +232,26 @@ class WorkoutController {
   });
 
   /**
+   * Update exercise (admin)
+   */
+  static updateExercise = asyncHandler(async (req, res) => {
+    const exerciseId = Number(req.params.id);
+    if (!Number.isInteger(exerciseId) || exerciseId <= 0) {
+      return errorResponse(res, "Invalid exercise id", 400);
+    }
+
+    const updated = await ExerciseService.updateById(exerciseId, req.body || {});
+    if (!updated) {
+      return errorResponse(res, "Exercise not found", 404);
+    }
+
+    return successResponse(res, {
+      message: "Exercise updated successfully",
+      data: updated,
+    });
+  });
+
+  /**
    * Delete exercise (soft delete)
    */
   static deleteExercise = asyncHandler(async (req, res) => {
@@ -275,6 +295,36 @@ class WorkoutController {
       message: "Workout created successfully",
       data: workout,
     }, 201);
+  });
+
+  /**
+   * Admin: get workouts by user id
+   */
+  static getWorkoutsByUserIdForAdmin = asyncHandler(async (req, res) => {
+    if (req.user.role !== "admin") {
+      return errorResponse(res, "You do not have permission to perform this action", 403);
+    }
+
+    const userId = WorkoutController._parsePositiveInt(req.params.user_id);
+    if (!userId) return errorResponse(res, "Invalid user_id", 400);
+
+    const user = await UserService.findById(userId);
+    if (!user) return errorResponse(res, "User not found", 404);
+
+    const result = await WorkoutService.findAllByUserId(userId, {
+      include_exercises: req.query.include_exercises !== "false",
+      page: req.query.page,
+      limit: req.query.limit,
+      q: req.query.q,
+      sort_by: req.query.sort_by,
+      sort_order: req.query.sort_order,
+      not_pagination: req.query.not_pagination,
+    });
+
+    return successResponse(res, {
+      message: "User workouts fetched successfully",
+      data: result,
+    });
   });
 }
 

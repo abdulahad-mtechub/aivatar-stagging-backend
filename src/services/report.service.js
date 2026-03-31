@@ -4,6 +4,75 @@ const StreakService = require("./streak.service");
 const MeasurementService = require("./measurement.service");
 
 class ReportService {
+  static _toYmd(dateValue) {
+    const d = new Date(dateValue);
+    return d.toISOString().split("T")[0];
+  }
+
+  static async getNutritionSeries(userId, endDate) {
+    // Start from the user's first planned/completed meal date; fallback to endDate.
+    const minDateRes = await db.query(
+      `SELECT MIN(COALESCE(plan_date, created_at::date))::date AS min_date
+       FROM meal_plans
+       WHERE user_id = $1`,
+      [userId]
+    );
+    const minDate = minDateRes.rows[0]?.min_date;
+    const startDate = minDate ? ReportService._toYmd(minDate) : endDate;
+
+    const seriesRes = await db.query(
+      `WITH days AS (
+         SELECT generate_series($2::date, $3::date, interval '1 day')::date AS day
+       ),
+       consumed AS (
+         SELECT
+           COALESCE(mp.plan_date, mp.created_at::date)::date AS day,
+           COALESCE(SUM(e.calories), 0)::float AS calories,
+           COALESCE(SUM(e.protein), 0)::float AS protein,
+           COALESCE(SUM(e.carbs), 0)::float AS carbs,
+           COALESCE(SUM(e.fats), 0)::float AS fats
+         FROM meal_plans mp
+         JOIN meals m ON mp.meal_id = m.id
+         JOIN meal_energy e ON m.energy_id = e.id
+         WHERE mp.user_id = $1
+           AND mp.status = 'completed'
+           AND COALESCE(mp.plan_date, mp.created_at::date) BETWEEN $2::date AND $3::date
+         GROUP BY COALESCE(mp.plan_date, mp.created_at::date)::date
+       )
+       SELECT
+         d.day,
+         COALESCE(c.calories, 0)::float AS calories,
+         COALESCE(c.protein, 0)::float AS protein,
+         COALESCE(c.carbs, 0)::float AS carbs,
+         COALESCE(c.fats, 0)::float AS fats
+       FROM days d
+       LEFT JOIN consumed c ON c.day = d.day
+       ORDER BY d.day ASC`,
+      [userId, startDate, endDate]
+    );
+
+    return {
+      start_date: startDate,
+      end_date: endDate,
+      carbs: seriesRes.rows.map((r) => ({
+        date: ReportService._toYmd(r.day),
+        consumed: Math.round(Number(r.carbs) || 0),
+      })),
+      calories: seriesRes.rows.map((r) => ({
+        date: ReportService._toYmd(r.day),
+        consumed: Math.round(Number(r.calories) || 0),
+      })),
+      protein: seriesRes.rows.map((r) => ({
+        date: ReportService._toYmd(r.day),
+        consumed: Math.round(Number(r.protein) || 0),
+      })),
+      fats: seriesRes.rows.map((r) => ({
+        date: ReportService._toYmd(r.day),
+        consumed: Math.round(Number(r.fats) || 0),
+      })),
+    };
+  }
+
   /**
    * Daily Report: Nutrition + Streak + Activity
    */
@@ -77,9 +146,12 @@ class ReportService {
       // Use Calories progress as the primary "Target Met" metric for the hero circle
       const targetMetPercent = progress.calories.percent;
 
+      const nutrition_series = await ReportService.getNutritionSeries(userId, date);
+
       return {
           date,
           nutrition: progress,
+          nutrition_series,
           streak: generalStreak.current_streak_days ?? 0,
           target_met_percent: Math.min(100, targetMetPercent)
       };

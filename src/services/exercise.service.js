@@ -157,6 +157,65 @@ class ExerciseService {
   }
 
   /**
+   * Update exercise (partial update)
+   */
+  static async updateById(id, exerciseData) {
+    const {
+      title,
+      description,
+      video_url,
+      thumbnail_url,
+      audio_url,
+      instructions,
+      category,
+      target_muscle_group,
+      duration_seconds,
+      difficulty,
+      default_rest_time_seconds,
+    } = exerciseData;
+
+    try {
+      const result = await db.query(
+        `UPDATE exercises
+         SET
+           title = COALESCE($1, title),
+           description = COALESCE($2, description),
+           video_url = COALESCE($3, video_url),
+           thumbnail_url = COALESCE($4, thumbnail_url),
+           audio_url = COALESCE($5, audio_url),
+           instructions = COALESCE($6, instructions),
+           category = COALESCE($7, category),
+           target_muscle_group = COALESCE($8, target_muscle_group),
+           duration_seconds = COALESCE($9, duration_seconds),
+           difficulty = COALESCE($10, difficulty),
+           default_rest_time_seconds = COALESCE($11, default_rest_time_seconds),
+           updated_at = NOW()
+         WHERE id = $12 AND deleted_at IS NULL
+         RETURNING *`,
+        [
+          title ?? null,
+          description ?? null,
+          video_url ?? null,
+          thumbnail_url ?? null,
+          audio_url ?? null,
+          instructions ?? null,
+          category ?? null,
+          target_muscle_group ?? null,
+          duration_seconds ?? null,
+          difficulty ?? null,
+          default_rest_time_seconds ?? null,
+          id,
+        ]
+      );
+
+      return result.rows[0] || null;
+    } catch (error) {
+      logger.error(`Error updating exercise: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
    * Soft delete exercise and detach it from workouts
    */
   static async deleteById(id) {

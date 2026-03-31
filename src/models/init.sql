@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   id SERIAL PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   profile_image TEXT,                          -- Cloudinary URL (frontend uploads, passes URL here)
+  address TEXT,
   reminder TEXT,                               -- Reminder message or schedule for the user
   plan_key VARCHAR(100),                       -- Subscription / plan identifier
   goal_id INTEGER REFERENCES goals(id) ON DELETE SET NULL,  -- FK to goals table
@@ -68,6 +69,8 @@ CREATE TABLE IF NOT EXISTS profiles (
   deleted_at TIMESTAMP,
   CONSTRAINT uq_profiles_user_id UNIQUE (user_id)
 );
+
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS address TEXT;
 
 -- Create indexes for profiles table
 CREATE INDEX IF NOT EXISTS idx_profiles_user_id ON profiles(user_id);
@@ -98,6 +101,8 @@ CREATE TABLE IF NOT EXISTS stripe_subscriptions (
   plan_key VARCHAR(100) NOT NULL,
   status VARCHAR(50),
   current_period_end TIMESTAMP,
+  cancel_reason TEXT,
+  cancel_requested_at TIMESTAMP,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
   CONSTRAINT uq_stripe_subscriptions_transaction UNIQUE (transaction_id)
@@ -105,6 +110,8 @@ CREATE TABLE IF NOT EXISTS stripe_subscriptions (
 
 CREATE INDEX IF NOT EXISTS idx_stripe_subscriptions_plan_key ON stripe_subscriptions(plan_key);
 CREATE INDEX IF NOT EXISTS idx_stripe_subscriptions_status ON stripe_subscriptions(status);
+ALTER TABLE stripe_subscriptions ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
+ALTER TABLE stripe_subscriptions ADD COLUMN IF NOT EXISTS cancel_requested_at TIMESTAMP;
 
 -- Content Management table (Privacy Policy, Terms & Conditions, etc.)
 CREATE TABLE IF NOT EXISTS contentmanagement (
@@ -173,6 +180,8 @@ CREATE TABLE IF NOT EXISTS meal_plans (
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_meal_plans_user_id ON meal_plans(user_id);
 CREATE INDEX IF NOT EXISTS idx_meal_plans_week_day ON meal_plans(user_id, week_number, day_of_week);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_meal_plans_user_week_day_slot
+  ON meal_plans(user_id, week_number, day_of_week, LOWER(TRIM(slot_type)));
 
 
 -- ==========================================

@@ -23,7 +23,7 @@ function stripReminderField(profile) {
  */
 exports.createProfile = asyncHandler(async (req, res, next) => {
     const userId = req.user.id;
-    const { profile_image, reminder, plan_key, goal_id, profile_field, mentor_gender, gender, qa_list, job_type } = req.body;
+    const { profile_image, address, reminder, plan_key, goal_id, profile_field, mentor_gender, gender, qa_list, job_type } = req.body;
 
     // Check if a profile already exists for this user
     const existing = await ProfileService.findByUserId(userId);
@@ -34,6 +34,7 @@ exports.createProfile = asyncHandler(async (req, res, next) => {
     const profile = await ProfileService.create({
         user_id: userId,
         profile_image,
+        address,
         reminder,
         plan_key,
         goal_id,
@@ -130,7 +131,7 @@ exports.updateProfile = asyncHandler(async (req, res, next) => {
     const idInt = parseInt(req.params.id, 10);
     if (Number.isNaN(idInt)) return next(new AppError("Invalid id parameter", 400));
 
-    const { profile_image, reminder, plan_key, goal_id, profile_field, mentor_gender, gender, qa_list, job_type } = req.body;
+    const { profile_image, address, reminder, plan_key, goal_id, profile_field, mentor_gender, gender, qa_list, job_type } = req.body;
 
     // Normalize/validate qa_list if provided
     let parsedQaList = undefined;
@@ -159,6 +160,7 @@ exports.updateProfile = asyncHandler(async (req, res, next) => {
 
     const updatedProfile = await ProfileService.update(idInt, {
         profile_image,
+        address,
         reminder,
         plan_key,
         goal_id,

@@ -10,6 +10,8 @@ const { successResponse } = require("../utils/apiResponse");
 // --- Exercise Content APIs ---
 // Create Exercise (AI-Driven from Frontend)
 router.post("/exercises", protect, restrictTo("admin"), WorkoutController.createExercise);
+// Update exercise (admin only)
+router.put("/exercises/:id", protect, restrictTo("admin"), WorkoutController.updateExercise);
 // Delete exercise (admin only)
 router.delete("/exercises/:id", protect, restrictTo("admin"), WorkoutController.deleteExercise);
 // Get list of exercises
@@ -17,6 +19,8 @@ router.get("/exercises", protect, asyncHandler(async (req, res) => {
   const result = await ExerciseService.findAll(req.query);
   return successResponse(res, { message: "Exercises fetched", data: result });
 }));
+// Admin: list workouts for a specific user
+router.get("/admin/by-user/:user_id", protect, restrictTo("admin"), WorkoutController.getWorkoutsByUserIdForAdmin);
 // Get specific exercise guide
 router.get("/exercises/:id", protect, WorkoutController.getExerciseById);
 // Previous session best set for an exercise

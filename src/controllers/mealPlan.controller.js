@@ -61,7 +61,12 @@ exports.addSlot = asyncHandler(async (req, res, next) => {
 
   const ownerId = await resolveMealPlanOwnerIdFromBody(req);
   const { user_id: _uid, ...body } = req.body;
-  const slot = await MealPlanService.addSlot(ownerId, body);
+  let slot;
+  try {
+    slot = await MealPlanService.addSlot(ownerId, body);
+  } catch (error) {
+    return next(new AppError(error.message, 400));
+  }
   return apiResponse(res, 201, "Meal slot added to plan successfully", slot);
 });
 
@@ -77,7 +82,12 @@ exports.bulkInsert = asyncHandler(async (req, res, next) => {
   }
 
   const ownerId = await resolveMealPlanOwnerIdFromBody(req);
-  const inserted = await MealPlanService.bulkInsert(ownerId, slots);
+  let inserted;
+  try {
+    inserted = await MealPlanService.bulkInsert(ownerId, slots);
+  } catch (error) {
+    return next(new AppError(error.message, 400));
+  }
   return apiResponse(res, 201, `${inserted.length} meal slots added to plan`, inserted);
 });
 
@@ -160,7 +170,12 @@ exports.updateSlot = asyncHandler(async (req, res, next) => {
   }
 
   const { user_id: _ignore, ...payload } = req.body;
-  const slot = await MealPlanService.updateSlot(slotId, targetUserId, payload);
+  let slot;
+  try {
+    slot = await MealPlanService.updateSlot(slotId, targetUserId, payload);
+  } catch (error) {
+    return next(new AppError(error.message, 400));
+  }
   if (!slot) return next(new AppError("Slot not found or not yours", 404));
   return apiResponse(res, 200, "Meal slot updated successfully", slot);
 });

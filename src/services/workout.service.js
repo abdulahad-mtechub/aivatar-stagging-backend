@@ -490,6 +490,149 @@ class WorkoutService {
   }
 
   /**
+   * Admin: list workouts created for a specific user
+   */
+  static async findAllByUserId(userId, options = {}) {
+    await WorkoutService.ensureWorkoutSchemaColumns();
+    const {
+      include_exercises = true,
+      page = 1,
+      limit = 10,
+      q,
+      sort_by = "created_at",
+      sort_order = "desc",
+      not_pagination,
+    } = options;
+    const disablePagination = parseBoolean(not_pagination, false);
+    const { page: pageNum, limit: limitNum, offset } = validatePaginationParams(page, limit);
+
+    const sortColumns = {
+      id: "w.id",
+      name: "w.name",
+      duration_minutes: "w.duration_minutes",
+      difficulty: "w.difficulty",
+      workout_type: "w.workout_type",
+      estimated_calories: "w.estimated_calories",
+      week_number: "w.week_number",
+      day_of_week: "w.day_of_week",
+      created_at: "w.created_at",
+      updated_at: "w.updated_at",
+    };
+    const safeSortBy = sortColumns[String(sort_by || "").toLowerCase()] || "w.created_at";
+    const safeSortOrder = String(sort_order || "").toLowerCase() === "asc" ? "ASC" : "DESC";
+
+    try {
+      const whereParams = [userId];
+      const whereParts = ["w.deleted_at IS NULL", "w.user_id = $1"];
+      const search = buildPartialSearchClause(
+        ["w.name", "w.description", "w.workout_type", "w.difficulty"],
+        q,
+        whereParams.length + 1
+      );
+      if (search.clause) {
+        whereParts.push(search.clause);
+        whereParams.push(...search.params);
+      }
+      const whereSql = whereParts.join(" AND ");
+
+      const countRes = await db.query(
+        `SELECT COUNT(*)::int AS total FROM workouts w WHERE ${whereSql}`,
+        whereParams
+      );
+      const total = countRes.rows[0]?.total || 0;
+
+      const params = [...whereParams];
+      let paginationSql = "";
+      if (!disablePagination) {
+        params.push(limitNum, offset);
+        paginationSql = ` LIMIT $${params.length - 1} OFFSET $${params.length}`;
+      }
+
+      if (!include_exercises) {
+        const result = await db.query(
+          `SELECT *
+           FROM workouts w
+           WHERE ${whereSql}
+           ORDER BY ${safeSortBy} ${safeSortOrder}, w.id DESC
+           ${paginationSql}`,
+          params
+        );
+        return {
+          workouts: result.rows,
+          ...(disablePagination
+            ? {}
+            : {
+                pagination: {
+                  ...generatePagination(pageNum, limitNum, total),
+                  sort_by: Object.keys(sortColumns).find((k) => sortColumns[k] === safeSortBy) || "created_at",
+                  sort_order: safeSortOrder.toLowerCase(),
+                },
+              }),
+        };
+      }
+
+      const result = await db.query(
+        `
+        SELECT
+          w.*,
+          COALESCE(
+            json_agg(
+              json_build_object(
+                'exercise_id', e.id,
+                'title', e.title,
+                'description', e.description,
+                'video_url', e.video_url,
+                'thumbnail_url', e.thumbnail_url,
+                'audio_url', e.audio_url,
+                'instructions', e.instructions,
+                'category', e.category,
+                'target_muscle_group', e.target_muscle_group,
+                'duration_seconds', e.duration_seconds,
+                'difficulty', e.difficulty,
+                'default_rest_time_seconds', e.default_rest_time_seconds,
+                'sequence_order', we.sequence_order,
+                'target_sets', we.target_sets,
+                'rest_time_seconds', we.rest_time_seconds,
+                'exercise_duration_seconds', we.exercise_duration_seconds,
+                'notes', we.notes
+              )
+              ORDER BY we.sequence_order
+            ) FILTER (WHERE e.id IS NOT NULL),
+            '[]'::json
+          ) AS exercises
+        FROM workouts w
+        LEFT JOIN workout_exercises we ON we.workout_id = w.id
+        LEFT JOIN exercises e ON e.id = we.exercise_id
+        WHERE ${whereSql}
+        GROUP BY w.id
+        ORDER BY ${safeSortBy} ${safeSortOrder}, w.id DESC
+        ${paginationSql}
+        `,
+        params
+      );
+
+      return {
+        workouts: result.rows.map((row) => ({
+          ...row,
+          ...WorkoutService._computeWorkoutCounts(row.exercises || []),
+        })),
+        ...(disablePagination
+          ? {}
+          : {
+              pagination: {
+                ...generatePagination(pageNum, limitNum, total),
+                sort_by: Object.keys(sortColumns).find((k) => sortColumns[k] === safeSortBy) || "created_at",
+                sort_order: safeSortOrder.toLowerCase(),
+              },
+            }),
+      };
+    } catch (error) {
+      logger.error(`Error finding user workouts: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
    * Create a new workout template (AI-generated from frontend)
    */
   static async create(workoutData) {

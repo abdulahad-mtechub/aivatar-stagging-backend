@@ -15,7 +15,7 @@ exports.upsertContent = asyncHandler(async (req, res, next) => {
 
   try {
     const result = await ContentService.upsert(type, content, status);
-    return apiResponse(res, 201, "Content upserted successfully", result);
+    return apiResponse(res, 201, "Content updated successfully", result);
   } catch (error) {
     return next(new AppError(error.message, 500));
   }

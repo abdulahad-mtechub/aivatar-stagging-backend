@@ -5,6 +5,22 @@ const logger = require("../utils/logger");
  * Meal Plan Service - Handles flat meal plan table
  */
 class MealPlanService {
+  static async findDuplicateSlot(userId, weekNumber, dayOfWeek, slotType, excludeId = null) {
+    const params = [userId, weekNumber, dayOfWeek, slotType];
+    let sql = `SELECT id
+               FROM meal_plans
+               WHERE user_id = $1
+                 AND week_number = $2
+                 AND day_of_week = $3
+                 AND LOWER(slot_type) = LOWER($4)`;
+    if (excludeId) {
+      params.push(excludeId);
+      sql += ` AND id != $5`;
+    }
+    sql += ` LIMIT 1`;
+    const dup = await db.query(sql, params);
+    return dup.rows[0] || null;
+  }
   static async findSlotById(slotId) {
     try {
       const result = await db.query("SELECT * FROM meal_plans WHERE id = $1", [slotId]);
@@ -21,6 +37,18 @@ class MealPlanService {
   static async addSlot(userId, data) {
     const { meal_id, week_number, day_of_week, plan_date, slot_type } = data;
     try {
+      const duplicate = await this.findDuplicateSlot(
+        userId,
+        week_number,
+        day_of_week,
+        slot_type
+      );
+      if (duplicate) {
+        throw new Error(
+          "Meal plan slot already exists for this user/week/day/slot_type"
+        );
+      }
+
       const result = await db.query(
         `INSERT INTO meal_plans 
           (user_id, meal_id, week_number, day_of_week, plan_date, slot_type)
@@ -43,8 +71,33 @@ class MealPlanService {
     try {
       await client.query("BEGIN");
       const inserted = [];
+      const seen = new Set();
       for (const slot of slots) {
         const { meal_id, week_number, day_of_week, plan_date, slot_type } = slot;
+        const dedupeKey = `${userId}|${week_number}|${day_of_week}|${String(slot_type || "").toLowerCase()}`;
+        if (seen.has(dedupeKey)) {
+          throw new Error(
+            `Duplicate slot in request for week ${week_number}, day ${day_of_week}, slot_type ${slot_type}`
+          );
+        }
+        seen.add(dedupeKey);
+
+        const duplicate = await client.query(
+          `SELECT id
+           FROM meal_plans
+           WHERE user_id = $1
+             AND week_number = $2
+             AND day_of_week = $3
+             AND LOWER(slot_type) = LOWER($4)
+           LIMIT 1`,
+          [userId, week_number, day_of_week, slot_type]
+        );
+        if (duplicate.rows[0]) {
+          throw new Error(
+            `Meal plan slot already exists for week ${week_number}, day ${day_of_week}, slot_type ${slot_type}`
+          );
+        }
+
         const result = await client.query(
           `INSERT INTO meal_plans 
             (user_id, meal_id, week_number, day_of_week, plan_date, slot_type)
@@ -188,6 +241,30 @@ class MealPlanService {
   static async updateSlot(slotId, userId, updateData) {
     const { status, is_skipped, is_swapped, meal_id } = updateData;
     try {
+      if (meal_id !== undefined && meal_id !== null) {
+        const slotRes = await db.query(
+          `SELECT week_number, day_of_week, slot_type
+           FROM meal_plans
+           WHERE id = $1 AND user_id = $2`,
+          [slotId, userId]
+        );
+        const slot = slotRes.rows[0];
+        if (!slot) return null;
+
+        const duplicate = await this.findDuplicateSlot(
+          userId,
+          slot.week_number,
+          slot.day_of_week,
+          slot.slot_type,
+          slotId
+        );
+        if (duplicate) {
+          throw new Error(
+            "Meal plan slot already exists for this user/week/day/slot_type"
+          );
+        }
+      }
+
       const result = await db.query(
         `UPDATE meal_plans
          SET status      = COALESCE($1, status),
