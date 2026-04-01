@@ -4,9 +4,48 @@ const { validatePaginationParams, generatePagination } = require("../utils/pagin
 const { parseBoolean, buildPartialSearchClause } = require("../utils/partialSearch");
 
 class WorkoutService {
+  static _toArray(value) {
+    if (Array.isArray(value)) return value.filter((v) => v !== null && v !== undefined && String(v).trim() !== "");
+    if (typeof value === "string" && value.trim()) return [value.trim()];
+    return [];
+  }
+
+  static _normalizeGuide(instructions) {
+    const raw = instructions && typeof instructions === "object" ? instructions : {};
+    const text =
+      raw.text ||
+      raw.instruction ||
+      raw.instructions ||
+      raw.description ||
+      null;
+    const dos = WorkoutService._toArray(raw.dos || raw.do || raw.tips);
+    const donts = WorkoutService._toArray(raw.donts || raw.dont || raw.avoid);
+    const steps = WorkoutService._toArray(raw.steps);
+    return {
+      text: typeof text === "string" ? text : null,
+      steps,
+      dos,
+      donts,
+    };
+  }
+
+  static _toYmd(dateValue) {
+    if (!dateValue) return null;
+    if (typeof dateValue === "string" && /^\d{4}-\d{2}-\d{2}$/.test(dateValue)) {
+      return dateValue;
+    }
+    const d = new Date(dateValue);
+    if (Number.isNaN(d.getTime())) return null;
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
   static _normalizeExerciseResponseFields(exercise) {
     if (!exercise || typeof exercise !== "object") return exercise;
     const targetSets = Array.isArray(exercise.target_sets) ? exercise.target_sets : [];
+    const guide = WorkoutService._normalizeGuide(exercise.instructions);
     return {
       exercise_id: exercise.exercise_id ?? exercise.id ?? null,
       title: exercise.title ?? null,
@@ -22,6 +61,11 @@ class WorkoutService {
       rest_time_seconds: exercise.rest_time_seconds ?? null,
       exercise_duration_seconds: exercise.exercise_duration_seconds ?? null,
       notes: exercise.notes ?? null,
+      audio_url: exercise.audio_url ?? null,
+      guide_text: guide.text,
+      guide_steps: guide.steps,
+      guide_dos: guide.dos,
+      guide_donts: guide.donts,
       // Simplified helper fields
       sets: targetSets.length,
       reps: targetSets.length > 0 ? targetSets[0]?.target_reps ?? null : null,
@@ -86,6 +130,7 @@ class WorkoutService {
     } = options;
 
     try {
+      const referenceDate = WorkoutService._toYmd(plan_date) || WorkoutService._toYmd(new Date());
       const plannedWhere = [];
       const plannedParams = [userId];
       plannedWhere.push(`wp.user_id = $1`);
@@ -205,34 +250,144 @@ class WorkoutService {
         allWorkouts = allRes.rows;
       }
 
+      // Build session/log progress for today's/planned workouts so frontend can
+      // render exercise/set completion state from a single home payload.
+      const plannedWorkoutIds = plannedRes.rows
+        .map((r) => Number(r.workout_id))
+        .filter((v) => Number.isInteger(v) && v > 0);
+      const uniquePlannedWorkoutIds = [...new Set(plannedWorkoutIds)];
+
+      const sessionByWorkoutId = new Map();
+      const logsBySessionExerciseSet = new Map();
+      let latestActiveSession = null;
+
+      if (uniquePlannedWorkoutIds.length > 0) {
+        const sessionsRes = await db.query(
+          `
+          SELECT s.*
+          FROM user_workout_sessions s
+          WHERE s.user_id = $1
+            AND s.workout_id = ANY($2::int[])
+          ORDER BY
+            CASE WHEN s.status = 'active' THEN 0 ELSE 1 END,
+            s.created_at DESC,
+            s.id DESC
+          `,
+          [userId, uniquePlannedWorkoutIds]
+        );
+
+        for (const s of sessionsRes.rows) {
+          if (!latestActiveSession && s.status === "active") latestActiveSession = s;
+          if (!sessionByWorkoutId.has(Number(s.workout_id))) {
+            sessionByWorkoutId.set(Number(s.workout_id), s);
+          }
+        }
+
+        const sessionIds = sessionsRes.rows.map((s) => Number(s.id)).filter((v) => Number.isInteger(v) && v > 0);
+        if (sessionIds.length > 0) {
+          const logsRes = await db.query(
+            `SELECT session_id, exercise_id, set_number, is_completed, actual_reps, actual_weight, created_at
+             FROM workout_sets
+             WHERE session_id = ANY($1::int[])
+             ORDER BY created_at ASC, id ASC`,
+            [sessionIds]
+          );
+          for (const l of logsRes.rows) {
+            logsBySessionExerciseSet.set(
+              `${l.session_id}:${l.exercise_id}:${l.set_number}`,
+              l
+            );
+          }
+        }
+      }
+
       return {
-        planned: plannedRes.rows.map((row) => ({
-          plan: {
-            id: row.plan_slot_id,
-            week_number: row.week_number,
-            day_of_week: row.day_of_week,
-            plan_date: row.plan_date,
-            status: row.plan_status,
-            created_at: row.plan_created_at,
-            updated_at: row.plan_updated_at,
-          },
-          workout: row.workout_id
-            ? {
-                id: row.workout_id,
-                name: row.workout_name,
-                description: row.workout_description,
-                duration_minutes: row.duration_minutes,
-                difficulty: row.workout_difficulty,
-                workout_type: row.workout_type,
-                burn_calories_target: row.estimated_calories,
-                thumbnail_url: row.workout_thumbnail_url,
-                exercises: (row.exercises || []).map((ex) =>
-                  WorkoutService._normalizeExerciseResponseFields(ex)
-                ),
-                ...WorkoutService._computeWorkoutCounts(row.exercises || []),
-              }
-            : null,
-        })),
+        planned: plannedRes.rows.map((row) => {
+          const matchedSession = sessionByWorkoutId.get(Number(row.workout_id)) || null;
+          const sessionId = matchedSession?.id || null;
+
+          const normalizedExercises = (row.exercises || []).map((ex) => {
+            const normalized = WorkoutService._normalizeExerciseResponseFields(ex);
+            const targetSets = Array.isArray(normalized.target_sets) ? normalized.target_sets : [];
+            const targetSetsWithCompletion = targetSets.map((s, index) => {
+              const setNumber = Number(s?.set_number || index + 1);
+              const log = sessionId
+                ? logsBySessionExerciseSet.get(
+                    `${sessionId}:${normalized.exercise_id}:${setNumber}`
+                  )
+                : null;
+              return {
+                ...s,
+                set_number: setNumber,
+                completed: Boolean(log?.is_completed),
+              };
+            });
+
+            const completedSets = targetSetsWithCompletion.filter((s) => s.completed).length;
+            return {
+              ...normalized,
+              target_sets: targetSetsWithCompletion,
+              completed_sets: completedSets,
+              total_sets: targetSetsWithCompletion.length,
+              completed:
+                targetSetsWithCompletion.length > 0 &&
+                completedSets === targetSetsWithCompletion.length,
+            };
+          });
+
+          const workoutCompletedSets = normalizedExercises.reduce(
+            (sum, ex) => sum + Number(ex.completed_sets || 0),
+            0
+          );
+          const workoutTotalSets = normalizedExercises.reduce(
+            (sum, ex) => sum + Number(ex.total_sets || 0),
+            0
+          );
+          const workoutCompletedExercises = normalizedExercises.filter((ex) => ex.completed).length;
+
+          return {
+            plan: {
+              id: row.plan_slot_id,
+              week_number: row.week_number,
+              day_of_week: row.day_of_week,
+              plan_date: row.plan_date,
+              status: row.plan_status,
+              created_at: row.plan_created_at,
+              updated_at: row.plan_updated_at,
+            },
+            session: matchedSession
+              ? {
+                  id: matchedSession.id,
+                  status: matchedSession.status,
+                  start_time: matchedSession.start_time,
+                  end_time: matchedSession.end_time,
+                  calories_burned: matchedSession.calories_burned,
+                }
+              : null,
+            workout: row.workout_id
+              ? {
+                  id: row.workout_id,
+                  name: row.workout_name,
+                  description: row.workout_description,
+                  duration_minutes: row.duration_minutes,
+                  difficulty: row.workout_difficulty,
+                  workout_type: row.workout_type,
+                  burn_calories_target: row.estimated_calories,
+                  thumbnail_url: row.workout_thumbnail_url,
+                  exercises: normalizedExercises,
+                  ...WorkoutService._computeWorkoutCounts(row.exercises || []),
+                  progress: {
+                    completed_sets: workoutCompletedSets,
+                    total_sets: workoutTotalSets,
+                    completed_exercises: workoutCompletedExercises,
+                    total_exercises: normalizedExercises.length,
+                    completed:
+                      workoutTotalSets > 0 && workoutCompletedSets === workoutTotalSets,
+                  },
+                }
+              : null,
+          };
+        }),
         missed: missedRes.rows.map((row) => ({
           plan: {
             id: row.plan_slot_id,
@@ -266,6 +421,17 @@ class WorkoutService {
             };
           }),
         },
+        active_session: latestActiveSession
+          ? {
+              id: latestActiveSession.id,
+              workout_id: latestActiveSession.workout_id,
+              status: latestActiveSession.status,
+              start_time: latestActiveSession.start_time,
+              end_time: latestActiveSession.end_time,
+              session_notes: latestActiveSession.session_notes || null,
+            }
+          : null,
+        reference_date: referenceDate,
       };
     } catch (error) {
       logger.error(`Error building workout home: ${error.message}`);
