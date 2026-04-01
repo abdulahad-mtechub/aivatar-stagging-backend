@@ -13,17 +13,18 @@ class ProfileService {
      * @returns {Promise<object>} Created profile row
      */
     static async create(profileData) {
-        const { user_id, profile_image, reminder, plan_key, goal_id, mentor_gender, gender, qa_list, job_type, target_weight } = profileData;
+        const { user_id, profile_image, address, reminder, plan_key, goal_id, mentor_gender, gender, qa_list, job_type, target_weight } = profileData;
 
         try {
             const result = await db.query(
                 `INSERT INTO profiles
-           (user_id, profile_image, reminder, plan_key, goal_id, mentor_gender, gender, qa_list, job_type, target_weight)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           (user_id, profile_image, address, reminder, plan_key, goal_id, mentor_gender, gender, qa_list, job_type, target_weight)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          RETURNING *`,
                 [
                     user_id,
                     profile_image || null,
+                    address || null,
                     reminder || null,
                     plan_key || null,
                     goal_id || null,
@@ -112,7 +113,7 @@ class ProfileService {
      * @returns {Promise<object|null>} Updated profile row or null
      */
     static async update(id, updateData) {
-        const allowedFields = ["profile_image", "reminder", "plan_key", "goal_id", "mentor_gender", "gender", "qa_list", "job_type", "target_weight"];
+        const allowedFields = ["profile_image", "address", "reminder", "plan_key", "goal_id", "mentor_gender", "gender", "qa_list", "job_type", "target_weight"];
 
         // Ensure qa_list is serialized to JSON text for the DB; controller attempts to normalize it,
         // but handle final serialization here for safety.

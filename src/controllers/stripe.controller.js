@@ -64,3 +64,63 @@ exports.createPortalSession = asyncHandler(async (req, res, next) => {
   return apiResponse(res, 200, "Portal session created successfully", result);
 });
 
+/**
+ * GET /api/stripe/customer-portal
+ * Query: ?return_url=https://your-app/account
+ * Returns Stripe customer portal URL where user can cancel subscription
+ * and update payment method.
+ */
+exports.getCustomerPortal = asyncHandler(async (req, res, next) => {
+  const userId = req.user.id;
+  const return_url = req.query?.return_url || null;
+  const result = await StripeService.createPortalSession({ userId, return_url });
+  return apiResponse(res, 200, "Customer portal link created successfully", result);
+});
+
+/**
+ * POST /api/stripe/cancel-subscription
+ * Body: { reason, cancel_immediately? }
+ */
+exports.cancelSubscription = asyncHandler(async (req, res, next) => {
+  const userId = req.user.id;
+  const { reason, cancel_immediately } = req.body || {};
+  const result = await StripeService.cancelSubscription({
+    userId,
+    reason,
+    cancel_immediately,
+  });
+  return apiResponse(res, 200, "Subscription cancellation submitted successfully", result);
+});
+
+/**
+ * POST /api/stripe/upgrade-subscription
+ * Body: { lookup_key? | price_id?, plan_id? }
+ */
+exports.upgradeSubscription = asyncHandler(async (req, res, next) => {
+  const userId = req.user.id;
+  const { lookup_key, price_id, plan_id } = req.body || {};
+  const result = await StripeService.upgradeSubscription({
+    userId,
+    lookup_key,
+    price_id,
+    plan_id,
+  });
+  return apiResponse(res, 200, "Subscription upgraded successfully", result);
+});
+
+/**
+ * POST /api/stripe/upgrade-preview
+ * Body: { lookup_key? | price_id?, plan_id? }
+ */
+exports.upgradePreview = asyncHandler(async (req, res, next) => {
+  const userId = req.user.id;
+  const { lookup_key, price_id, plan_id } = req.body || {};
+  const result = await StripeService.getUpgradePreview({
+    userId,
+    lookup_key,
+    price_id,
+    plan_id,
+  });
+  return apiResponse(res, 200, "Upgrade preview fetched successfully", result);
+});
+

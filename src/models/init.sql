@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   id SERIAL PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   profile_image TEXT,                          -- Cloudinary URL (frontend uploads, passes URL here)
+  address TEXT,
   reminder TEXT,                               -- Reminder message or schedule for the user
   plan_key VARCHAR(100),                       -- Subscription / plan identifier
   goal_id INTEGER REFERENCES goals(id) ON DELETE SET NULL,  -- FK to goals table
@@ -68,6 +69,8 @@ CREATE TABLE IF NOT EXISTS profiles (
   deleted_at TIMESTAMP,
   CONSTRAINT uq_profiles_user_id UNIQUE (user_id)
 );
+
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS address TEXT;
 
 -- Create indexes for profiles table
 CREATE INDEX IF NOT EXISTS idx_profiles_user_id ON profiles(user_id);
@@ -98,6 +101,8 @@ CREATE TABLE IF NOT EXISTS stripe_subscriptions (
   plan_key VARCHAR(100) NOT NULL,
   status VARCHAR(50),
   current_period_end TIMESTAMP,
+  cancel_reason TEXT,
+  cancel_requested_at TIMESTAMP,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
   CONSTRAINT uq_stripe_subscriptions_transaction UNIQUE (transaction_id)
@@ -105,6 +110,8 @@ CREATE TABLE IF NOT EXISTS stripe_subscriptions (
 
 CREATE INDEX IF NOT EXISTS idx_stripe_subscriptions_plan_key ON stripe_subscriptions(plan_key);
 CREATE INDEX IF NOT EXISTS idx_stripe_subscriptions_status ON stripe_subscriptions(status);
+ALTER TABLE stripe_subscriptions ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
+ALTER TABLE stripe_subscriptions ADD COLUMN IF NOT EXISTS cancel_requested_at TIMESTAMP;
 
 -- Content Management table (Privacy Policy, Terms & Conditions, etc.)
 CREATE TABLE IF NOT EXISTS contentmanagement (
@@ -173,6 +180,8 @@ CREATE TABLE IF NOT EXISTS meal_plans (
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_meal_plans_user_id ON meal_plans(user_id);
 CREATE INDEX IF NOT EXISTS idx_meal_plans_week_day ON meal_plans(user_id, week_number, day_of_week);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_meal_plans_user_week_day_slot
+  ON meal_plans(user_id, week_number, day_of_week, LOWER(TRIM(slot_type)));
 
 
 -- ==========================================
@@ -203,7 +212,6 @@ CREATE TABLE IF NOT EXISTS exercises (
   id SERIAL PRIMARY KEY,
   title VARCHAR(255) NOT NULL,
   description TEXT,
-  media_url TEXT,
   video_url TEXT,
   thumbnail_url TEXT,
   audio_url TEXT,
@@ -211,7 +219,6 @@ CREATE TABLE IF NOT EXISTS exercises (
   category VARCHAR(50),
   target_muscle_group VARCHAR(100),
   duration_seconds INTEGER,
-  equipment VARCHAR(100),
   difficulty VARCHAR(50),
   default_rest_time_seconds INTEGER,
   created_at TIMESTAMP DEFAULT NOW(),
@@ -219,9 +226,31 @@ CREATE TABLE IF NOT EXISTS exercises (
   deleted_at TIMESTAMP
 );
 
+-- Backward-compatible cleanup for existing DBs
+ALTER TABLE exercises DROP COLUMN IF EXISTS media_url;
+ALTER TABLE exercises DROP COLUMN IF EXISTS equipment;
+
 -- 2. Workout Templates
 CREATE TABLE IF NOT EXISTS workouts (
   id SERIAL PRIMARY KEY,
+  -- When NULL, this row is a workout template (shared by all users).
+  -- When NOT NULL, this row represents a user-specific planned slot.
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+
+  -- For planned slots, this points to the template workout id.
+  -- For templates, this stays NULL.
+
+  -- For planned slots only (e.g., reschedules/quick sessions).
+  parent_slot_id INTEGER REFERENCES workouts(id) ON DELETE SET NULL,
+  week_number INTEGER,
+  day_of_week INTEGER CHECK (day_of_week BETWEEN 1 AND 7),
+  plan_date DATE,
+
+  status VARCHAR(20) DEFAULT 'pending',
+  is_skipped BOOLEAN DEFAULT false,
+  is_swapped BOOLEAN DEFAULT false,
+  assigned_reason VARCHAR(50),
+
   name VARCHAR(255) NOT NULL,
   description TEXT,
   duration_minutes INTEGER,
@@ -234,21 +263,36 @@ CREATE TABLE IF NOT EXISTS workouts (
   deleted_at TIMESTAMP
 );
 
+-- Backward-compatible columns for existing databases where `workouts`
+-- table already existed before user-linked scheduling fields were added.
+ALTER TABLE workouts ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;
+ALTER TABLE workouts ADD COLUMN IF NOT EXISTS parent_slot_id INTEGER REFERENCES workouts(id) ON DELETE SET NULL;
+ALTER TABLE workouts ADD COLUMN IF NOT EXISTS week_number INTEGER;
+ALTER TABLE workouts ADD COLUMN IF NOT EXISTS day_of_week INTEGER;
+ALTER TABLE workouts ADD COLUMN IF NOT EXISTS plan_date DATE;
+ALTER TABLE workouts ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'pending';
+ALTER TABLE workouts ADD COLUMN IF NOT EXISTS is_skipped BOOLEAN DEFAULT false;
+ALTER TABLE workouts ADD COLUMN IF NOT EXISTS is_swapped BOOLEAN DEFAULT false;
+ALTER TABLE workouts ADD COLUMN IF NOT EXISTS assigned_reason VARCHAR(50);
+ALTER TABLE workouts DROP COLUMN IF EXISTS slot_type;
+
 -- 3. Workout Exercises (Junction Table)
 CREATE TABLE IF NOT EXISTS workout_exercises (
   id SERIAL PRIMARY KEY,
   workout_id INTEGER REFERENCES workouts(id) ON DELETE CASCADE,
   exercise_id INTEGER REFERENCES exercises(id) ON DELETE CASCADE,
   sequence_order INTEGER NOT NULL,
-  default_sets INTEGER DEFAULT 3,
-  default_reps INTEGER DEFAULT 10,
-  default_weight FLOAT DEFAULT 0.0,
   target_sets JSONB DEFAULT '[]'::jsonb,
   rest_time_seconds INTEGER,
   exercise_duration_seconds INTEGER,
   notes TEXT,
   created_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Backward-compatible cleanup for existing DBs
+ALTER TABLE workout_exercises DROP COLUMN IF EXISTS default_sets;
+ALTER TABLE workout_exercises DROP COLUMN IF EXISTS default_reps;
+ALTER TABLE workout_exercises DROP COLUMN IF EXISTS default_weight;
 
 -- 4. User Workout Sessions (Logging)
 CREATE TABLE IF NOT EXISTS user_workout_sessions (
@@ -257,12 +301,15 @@ CREATE TABLE IF NOT EXISTS user_workout_sessions (
   workout_id INTEGER REFERENCES workouts(id) ON DELETE SET NULL,
   start_time TIMESTAMP DEFAULT NOW(),
   end_time TIMESTAMP,
+  session_notes TEXT,
   status VARCHAR(20) DEFAULT 'active',
   total_volume FLOAT DEFAULT 0,
   calories_burned INTEGER DEFAULT 0,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
+
+ALTER TABLE user_workout_sessions ADD COLUMN IF NOT EXISTS session_notes TEXT;
 
 -- 5. Workout Sets (Detailed Logs)
 CREATE TABLE IF NOT EXISTS workout_sets (
@@ -285,28 +332,10 @@ CREATE INDEX IF NOT EXISTS idx_workout_exercises_workout_id ON workout_exercises
 CREATE INDEX IF NOT EXISTS idx_user_workout_sessions_user_id ON user_workout_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_workout_sets_session_id ON workout_sets(session_id);
 
--- 6. Workout Plans (AI-generated / scheduled)
-CREATE TABLE IF NOT EXISTS workout_plans (
-  id SERIAL PRIMARY KEY,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  workout_id INTEGER REFERENCES workouts(id) ON DELETE SET NULL,
-  parent_slot_id INTEGER REFERENCES workout_plans(id) ON DELETE SET NULL,
-  week_number INTEGER NOT NULL DEFAULT 1,
-  day_of_week INTEGER NOT NULL CHECK (day_of_week BETWEEN 1 AND 7), -- 1=Mon, 7=Sun
-  plan_date DATE,
-  slot_type VARCHAR(20) NOT NULL DEFAULT 'workout',
-  status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'completed', 'missed', 'skipped'
-  is_skipped BOOLEAN DEFAULT false,
-  is_swapped BOOLEAN DEFAULT false,
-  assigned_reason VARCHAR(50),
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_workout_plans_user_id ON workout_plans(user_id);
-CREATE INDEX IF NOT EXISTS idx_workout_plans_week_day ON workout_plans(user_id, week_number, day_of_week);
-CREATE INDEX IF NOT EXISTS idx_workout_plans_plan_date ON workout_plans(user_id, plan_date);
-CREATE INDEX IF NOT EXISTS idx_workout_plans_parent_slot_id ON workout_plans(parent_slot_id);
+-- User-specific workout plan slots live inside `workouts`
+CREATE INDEX IF NOT EXISTS idx_workouts_user_id_week_day ON workouts(user_id, week_number, day_of_week);
+CREATE INDEX IF NOT EXISTS idx_workouts_user_id_status ON workouts(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_workouts_user_id_plan_date ON workouts(user_id, plan_date);
 
 -- ==========================================
 -- Reminder Settings + In-app Notifications

@@ -3,7 +3,6 @@ const ActivityService = require("../services/activity.service");
 const AppError = require("../utils/appError");
 const asyncHandler = require("../utils/asyncHandler");
 const { apiResponse } = require("../utils/apiResponse");
-const { generatePagination } = require("../utils/pagination");
 
 /**
  * Get all users with pagination
@@ -29,6 +28,8 @@ exports.getAllUsersWithProfile = asyncHandler(async (req, res, next) => {
     status = "mixed",
     sort_by,
     sort_order,
+    q,
+    not_pagination,
   } = req.query;
   let result;
   try {
@@ -38,6 +39,8 @@ exports.getAllUsersWithProfile = asyncHandler(async (req, res, next) => {
       status,
       sort_by,
       sort_order,
+      q,
+      not_pagination,
     });
   } catch (error) {
     return next(new AppError(error.message, 400));
@@ -53,8 +56,15 @@ exports.getAllUsersWithProfile = asyncHandler(async (req, res, next) => {
  * Admin: Get deleted users with profile data
  */
 exports.getDeletedUsersWithProfile = asyncHandler(async (req, res, next) => {
-  const { page = 1, limit = 10 } = req.query;
-  const result = await UserService.findDeletedWithProfiles({ page, limit });
+  const { page = 1, limit = 10, sort_by, sort_order, q, not_pagination } = req.query;
+  const result = await UserService.findDeletedWithProfiles({
+    page,
+    limit,
+    sort_by,
+    sort_order,
+    q,
+    not_pagination,
+  });
 
   return apiResponse(res, 200, "Resources retrieved successfully", {
     users: result.users,

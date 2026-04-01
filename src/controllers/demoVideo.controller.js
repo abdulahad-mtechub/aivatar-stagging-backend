@@ -37,8 +37,15 @@ class DemoVideoController {
 
   static listAllAdmin = asyncHandler(async (req, res) => {
     if (!assertAdminRequest(req, res)) return;
-    const videos = await DemoVideoService.listAllForAdmin();
-    return successResponse(res, { message: "Demo videos fetched", data: videos });
+    const result = await DemoVideoService.listAllForAdmin({
+      page: req.query.page,
+      limit: req.query.limit,
+      q: req.query.q,
+      sort_by: req.query.sort_by,
+      sort_order: req.query.sort_order,
+      not_pagination: req.query.not_pagination,
+    });
+    return successResponse(res, { message: "Demo videos fetched", data: result });
   });
 
   static getByIdAdmin = asyncHandler(async (req, res) => {

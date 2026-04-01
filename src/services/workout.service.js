@@ -1,11 +1,65 @@
 const db = require("../config/database");
 const logger = require("../utils/logger");
+const { validatePaginationParams, generatePagination } = require("../utils/pagination");
+const { parseBoolean, buildPartialSearchClause } = require("../utils/partialSearch");
 
 class WorkoutService {
+  static _normalizeExerciseResponseFields(exercise) {
+    if (!exercise || typeof exercise !== "object") return exercise;
+    const targetSets = Array.isArray(exercise.target_sets) ? exercise.target_sets : [];
+    return {
+      exercise_id: exercise.exercise_id ?? exercise.id ?? null,
+      title: exercise.title ?? null,
+      description: exercise.description ?? null,
+      video_url: exercise.video_url ?? null,
+      thumbnail_url: exercise.thumbnail_url ?? null,
+      category: exercise.category ?? null,
+      target_muscle_group: exercise.target_muscle_group ?? null,
+      duration_seconds: exercise.duration_seconds ?? null,
+      difficulty: exercise.difficulty ?? null,
+      sequence_order: exercise.sequence_order ?? null,
+      target_sets: targetSets,
+      rest_time_seconds: exercise.rest_time_seconds ?? null,
+      exercise_duration_seconds: exercise.exercise_duration_seconds ?? null,
+      notes: exercise.notes ?? null,
+      // Simplified helper fields
+      sets: targetSets.length,
+      reps: targetSets.length > 0 ? targetSets[0]?.target_reps ?? null : null,
+      weight: targetSets.length > 0 ? targetSets[0]?.target_weight ?? null : null,
+      lbs: targetSets.length > 0 ? targetSets[0]?.target_weight ?? null : null,
+    };
+  }
+
+  static _schemaEnsured = false;
+
+  static async ensureWorkoutSchemaColumns() {
+    if (WorkoutService._schemaEnsured) return;
+
+    // Failsafe for existing databases where `workouts` was created before
+    // user-linked scheduling columns were introduced.
+    await db.query(
+      "ALTER TABLE workouts ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE CASCADE"
+    );
+    await db.query(
+      "ALTER TABLE workouts ADD COLUMN IF NOT EXISTS parent_slot_id INTEGER REFERENCES workouts(id) ON DELETE SET NULL"
+    );
+    await db.query("ALTER TABLE workouts ADD COLUMN IF NOT EXISTS week_number INTEGER");
+    await db.query("ALTER TABLE workouts ADD COLUMN IF NOT EXISTS day_of_week INTEGER");
+    await db.query("ALTER TABLE workouts ADD COLUMN IF NOT EXISTS plan_date DATE");
+    await db.query(
+      "ALTER TABLE workouts ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'pending'"
+    );
+    await db.query(
+      "ALTER TABLE workouts ADD COLUMN IF NOT EXISTS assigned_reason VARCHAR(50)"
+    );
+
+    WorkoutService._schemaEnsured = true;
+  }
+
   static _computeWorkoutCounts(exercises = []) {
     const exercises_count = Array.isArray(exercises) ? exercises.length : 0;
     const sets_count = (Array.isArray(exercises) ? exercises : []).reduce((sum, ex) => {
-      const explicitSets = Number(ex?.default_sets ?? ex?.sets);
+      const explicitSets = Number(ex?.sets);
       if (Number.isFinite(explicitSets) && explicitSets > 0) return sum + explicitSets;
 
       const targetSetsLen = Array.isArray(ex?.target_sets) ? ex.target_sets.length : 0;
@@ -21,6 +75,7 @@ class WorkoutService {
    * Workout Home (First screen) - aggregated hierarchical payload
    */
   static async getHome(userId, options = {}) {
+    await WorkoutService.ensureWorkoutSchemaColumns();
     const {
       week_number,
       day_of_week,
@@ -34,6 +89,9 @@ class WorkoutService {
       const plannedWhere = [];
       const plannedParams = [userId];
       plannedWhere.push(`wp.user_id = $1`);
+      // Planned rows are user-specific workouts with schedule fields filled.
+      plannedWhere.push(`wp.week_number IS NOT NULL`);
+      plannedWhere.push(`wp.day_of_week IS NOT NULL`);
 
       if (week_number) {
         plannedParams.push(Number(week_number));
@@ -57,40 +115,33 @@ class WorkoutService {
           wp.week_number,
           wp.day_of_week,
           wp.plan_date,
-          wp.slot_type,
           wp.status as plan_status,
-          wp.is_skipped,
-          wp.is_swapped,
           wp.created_at as plan_created_at,
           wp.updated_at as plan_updated_at,
-          w.id as workout_id,
-          w.name as workout_name,
-          w.description as workout_description,
-          w.duration_minutes,
-          w.difficulty as workout_difficulty,
-          w.workout_type,
-          w.estimated_calories,
-          w.thumbnail_url as workout_thumbnail_url,
+          wp.id as workout_id,
+          wp.name as workout_name,
+          wp.description as workout_description,
+          wp.duration_minutes,
+          wp.difficulty as workout_difficulty,
+          wp.workout_type,
+          wp.estimated_calories,
+          wp.thumbnail_url as workout_thumbnail_url,
           COALESCE(
             json_agg(
               json_build_object(
                 'exercise_id', e.id,
                 'title', e.title,
                 'description', e.description,
-                'video_url', COALESCE(e.video_url, e.media_url),
+                'video_url', e.video_url,
                 'thumbnail_url', e.thumbnail_url,
                 'audio_url', e.audio_url,
                 'instructions', e.instructions,
                 'category', e.category,
                 'target_muscle_group', e.target_muscle_group,
                 'duration_seconds', e.duration_seconds,
-                'equipment', e.equipment,
                 'difficulty', e.difficulty,
                 'default_rest_time_seconds', e.default_rest_time_seconds,
                 'sequence_order', we.sequence_order,
-                'default_sets', we.default_sets,
-                'default_reps', we.default_reps,
-                'default_weight', we.default_weight,
                 'target_sets', we.target_sets,
                 'rest_time_seconds', we.rest_time_seconds,
                 'exercise_duration_seconds', we.exercise_duration_seconds,
@@ -100,12 +151,11 @@ class WorkoutService {
             ) FILTER (WHERE e.id IS NOT NULL),
             '[]'::json
           ) AS exercises
-        FROM workout_plans wp
-        LEFT JOIN workouts w ON wp.workout_id = w.id
-        LEFT JOIN workout_exercises we ON we.workout_id = w.id
+        FROM workouts wp
+        LEFT JOIN workout_exercises we ON we.workout_id = wp.id
         LEFT JOIN exercises e ON e.id = we.exercise_id
         WHERE ${plannedWhere.join(" AND ")}
-        GROUP BY wp.id, w.id
+        GROUP BY wp.id
         ORDER BY wp.day_of_week, wp.plan_date NULLS LAST, wp.created_at DESC
         `,
         plannedParams
@@ -118,21 +168,20 @@ class WorkoutService {
           wp.week_number,
           wp.day_of_week,
           wp.plan_date,
-          wp.slot_type,
           wp.status as plan_status,
-          wp.is_skipped,
-          wp.is_swapped,
           wp.created_at as plan_created_at,
-          w.id as workout_id,
-          w.name as workout_name,
-          w.duration_minutes,
-          w.difficulty as workout_difficulty,
-          w.workout_type,
-          w.estimated_calories,
-          w.thumbnail_url as workout_thumbnail_url
-        FROM workout_plans wp
-        LEFT JOIN workouts w ON wp.workout_id = w.id
-        WHERE wp.user_id = $1 AND wp.status = 'missed'
+          wp.id as workout_id,
+          wp.name as workout_name,
+          wp.duration_minutes as duration_minutes,
+          wp.difficulty as workout_difficulty,
+          wp.workout_type as workout_type,
+          wp.estimated_calories as estimated_calories,
+          wp.thumbnail_url as workout_thumbnail_url
+        FROM workouts wp
+        WHERE wp.user_id = $1
+          AND wp.status = 'missed'
+          AND wp.week_number IS NOT NULL
+          AND wp.day_of_week IS NOT NULL
         ORDER BY COALESCE(wp.plan_date::timestamp, wp.created_at) DESC
         LIMIT $2
         `,
@@ -147,6 +196,7 @@ class WorkoutService {
                  estimated_calories, thumbnail_url, created_at
           FROM workouts
           WHERE deleted_at IS NULL
+            AND user_id IS NULL
           ORDER BY created_at DESC
           LIMIT $1
           `,
@@ -162,10 +212,7 @@ class WorkoutService {
             week_number: row.week_number,
             day_of_week: row.day_of_week,
             plan_date: row.plan_date,
-            slot_type: row.slot_type,
             status: row.plan_status,
-            is_skipped: row.is_skipped,
-            is_swapped: row.is_swapped,
             created_at: row.plan_created_at,
             updated_at: row.plan_updated_at,
           },
@@ -177,9 +224,11 @@ class WorkoutService {
                 duration_minutes: row.duration_minutes,
                 difficulty: row.workout_difficulty,
                 workout_type: row.workout_type,
-                estimated_calories: row.estimated_calories,
+                burn_calories_target: row.estimated_calories,
                 thumbnail_url: row.workout_thumbnail_url,
-                exercises: row.exercises || [],
+                exercises: (row.exercises || []).map((ex) =>
+                  WorkoutService._normalizeExerciseResponseFields(ex)
+                ),
                 ...WorkoutService._computeWorkoutCounts(row.exercises || []),
               }
             : null,
@@ -190,10 +239,7 @@ class WorkoutService {
             week_number: row.week_number,
             day_of_week: row.day_of_week,
             plan_date: row.plan_date,
-            slot_type: row.slot_type,
             status: row.plan_status,
-            is_skipped: row.is_skipped,
-            is_swapped: row.is_swapped,
             created_at: row.plan_created_at,
           },
           workout: row.workout_id
@@ -203,18 +249,22 @@ class WorkoutService {
                 duration_minutes: row.duration_minutes,
                 difficulty: row.workout_difficulty,
                 workout_type: row.workout_type,
-                estimated_calories: row.estimated_calories,
+                burn_calories_target: row.estimated_calories,
                 thumbnail_url: row.workout_thumbnail_url,
               }
             : null,
         })),
         recommendations: {
-          all_workouts: allWorkouts.map((w) => ({
-            ...w,
-            // keep shape consistent; these may be filled when workout detail is fetched
-            exercises_count: w.exercises_count ?? null,
-            sets_count: w.sets_count ?? null,
-          })),
+          all_workouts: allWorkouts.map((w) => {
+            const { estimated_calories, ...rest } = w;
+            return {
+              ...rest,
+              burn_calories_target: estimated_calories,
+              // keep shape consistent; these may be filled when workout detail is fetched
+              exercises_count: w.exercises_count ?? null,
+              sets_count: w.sets_count ?? null,
+            };
+          }),
         },
       };
     } catch (error) {
@@ -227,19 +277,86 @@ class WorkoutService {
    * List all workout templates
    */
   static async findAll(options = {}) {
+    await WorkoutService.ensureWorkoutSchemaColumns();
     const {
       include_exercises = true,
-      limit = 50,
-      offset = 0,
+      page = 1,
+      limit = 10,
+      q,
+      sort_by = "created_at",
+      sort_order = "desc",
+      not_pagination,
     } = options;
+    const disablePagination = parseBoolean(not_pagination, false);
+    const { page: pageNum, limit: limitNum, offset } = validatePaginationParams(page, limit);
+
+    const sortColumns = {
+      id: "w.id",
+      name: "w.name",
+      duration_minutes: "w.duration_minutes",
+      difficulty: "w.difficulty",
+      workout_type: "w.workout_type",
+      estimated_calories: "w.estimated_calories",
+      created_at: "w.created_at",
+      updated_at: "w.updated_at",
+    };
+    const safeSortBy = sortColumns[String(sort_by || "").toLowerCase()] || "w.created_at";
+    const safeSortOrder = String(sort_order || "").toLowerCase() === "asc" ? "ASC" : "DESC";
 
     try {
+      const baseWhere = ["w.deleted_at IS NULL", "w.user_id IS NULL"];
+      const whereParams = [];
+      const search = buildPartialSearchClause(
+        ["w.name", "w.description", "w.workout_type", "w.difficulty"],
+        q,
+        1
+      );
+      if (search.clause) {
+        baseWhere.push(search.clause);
+        whereParams.push(...search.params);
+      }
+      const whereSql = baseWhere.join(" AND ");
+
+      const countRes = await db.query(
+        `SELECT COUNT(*)::int AS total FROM workouts w WHERE ${whereSql}`,
+        whereParams
+      );
+      const total = countRes.rows[0]?.total || 0;
+
       if (!include_exercises) {
+        const params = [...whereParams];
+        let paginationSql = "";
+        if (!disablePagination) {
+          params.push(limitNum, offset);
+          paginationSql = ` LIMIT $${params.length - 1} OFFSET $${params.length}`;
+        }
         const result = await db.query(
-          "SELECT * FROM workouts WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT $1 OFFSET $2",
-          [Number(limit), Number(offset)]
+          `SELECT *
+           FROM workouts w
+           WHERE ${whereSql}
+           ORDER BY ${safeSortBy} ${safeSortOrder}, w.id DESC
+           ${paginationSql}`,
+          params
         );
-        return result.rows;
+        return {
+          workouts: result.rows,
+          ...(disablePagination
+            ? {}
+            : {
+                pagination: {
+                  ...generatePagination(pageNum, limitNum, total),
+                  sort_by: Object.keys(sortColumns).find((k) => sortColumns[k] === safeSortBy) || "created_at",
+                  sort_order: safeSortOrder.toLowerCase(),
+                },
+              }),
+        };
+      }
+
+      const params = [...whereParams];
+      let paginationSql = "";
+      if (!disablePagination) {
+        params.push(limitNum, offset);
+        paginationSql = ` LIMIT $${params.length - 1} OFFSET $${params.length}`;
       }
 
       const result = await db.query(
@@ -252,20 +369,16 @@ class WorkoutService {
                 'exercise_id', e.id,
                 'title', e.title,
                 'description', e.description,
-                'video_url', COALESCE(e.video_url, e.media_url),
+                'video_url', e.video_url,
                 'thumbnail_url', e.thumbnail_url,
                 'audio_url', e.audio_url,
                 'instructions', e.instructions,
                 'category', e.category,
                 'target_muscle_group', e.target_muscle_group,
                 'duration_seconds', e.duration_seconds,
-                'equipment', e.equipment,
                 'difficulty', e.difficulty,
                 'default_rest_time_seconds', e.default_rest_time_seconds,
                 'sequence_order', we.sequence_order,
-                'default_sets', we.default_sets,
-                'default_reps', we.default_reps,
-                'default_weight', we.default_weight,
                 'target_sets', we.target_sets,
                 'rest_time_seconds', we.rest_time_seconds,
                 'exercise_duration_seconds', we.exercise_duration_seconds,
@@ -278,19 +391,30 @@ class WorkoutService {
         FROM workouts w
         LEFT JOIN workout_exercises we ON we.workout_id = w.id
         LEFT JOIN exercises e ON e.id = we.exercise_id
-        WHERE w.deleted_at IS NULL
+        WHERE ${whereSql}
         GROUP BY w.id
-        ORDER BY w.created_at DESC
-        LIMIT $1 OFFSET $2
+        ORDER BY ${safeSortBy} ${safeSortOrder}, w.id DESC
+        ${paginationSql}
         `,
-        [Number(limit), Number(offset)]
+        params
       );
 
       // Add computed counts on each workout
-      return result.rows.map((row) => ({
-        ...row,
-        ...WorkoutService._computeWorkoutCounts(row.exercises || []),
-      }));
+      return {
+        workouts: result.rows.map((row) => ({
+          ...row,
+          ...WorkoutService._computeWorkoutCounts(row.exercises || []),
+        })),
+        ...(disablePagination
+          ? {}
+          : {
+              pagination: {
+                ...generatePagination(pageNum, limitNum, total),
+                sort_by: Object.keys(sortColumns).find((k) => sortColumns[k] === safeSortBy) || "created_at",
+                sort_order: safeSortOrder.toLowerCase(),
+              },
+            }),
+      };
     } catch (error) {
       logger.error(`Error finding workouts: ${error.message}`);
       throw error;
@@ -301,9 +425,10 @@ class WorkoutService {
    * Get workout with its exercises
    */
   static async findById(id) {
+    await WorkoutService.ensureWorkoutSchemaColumns();
     try {
       const workoutRes = await db.query(
-        "SELECT * FROM workouts WHERE id = $1 AND deleted_at IS NULL",
+        "SELECT * FROM workouts WHERE id = $1 AND deleted_at IS NULL AND user_id IS NULL",
         [id]
       );
       
@@ -313,9 +438,6 @@ class WorkoutService {
         `SELECT
            e.*,
            we.sequence_order,
-           we.default_sets,
-           we.default_reps,
-           we.default_weight,
            we.target_sets,
            we.rest_time_seconds,
            we.exercise_duration_seconds,
@@ -343,6 +465,7 @@ class WorkoutService {
    * Quick workouts list (used by "Quick 20-min session now" option)
    */
   static async findQuick(options = {}) {
+    await WorkoutService.ensureWorkoutSchemaColumns();
     const { max_duration_minutes = 20, limit = 20, offset = 0 } = options;
     try {
       const result = await db.query(
@@ -351,6 +474,7 @@ class WorkoutService {
                estimated_calories, thumbnail_url, created_at
         FROM workouts
         WHERE deleted_at IS NULL
+          AND user_id IS NULL
           AND duration_minutes IS NOT NULL
           AND duration_minutes <= $1
         ORDER BY duration_minutes ASC, created_at DESC
@@ -366,10 +490,160 @@ class WorkoutService {
   }
 
   /**
+   * Admin: list workouts created for a specific user
+   */
+  static async findAllByUserId(userId, options = {}) {
+    await WorkoutService.ensureWorkoutSchemaColumns();
+    const {
+      include_exercises = true,
+      page = 1,
+      limit = 10,
+      q,
+      sort_by = "created_at",
+      sort_order = "desc",
+      not_pagination,
+    } = options;
+    const disablePagination = parseBoolean(not_pagination, false);
+    const { page: pageNum, limit: limitNum, offset } = validatePaginationParams(page, limit);
+
+    const sortColumns = {
+      id: "w.id",
+      name: "w.name",
+      duration_minutes: "w.duration_minutes",
+      difficulty: "w.difficulty",
+      workout_type: "w.workout_type",
+      estimated_calories: "w.estimated_calories",
+      week_number: "w.week_number",
+      day_of_week: "w.day_of_week",
+      created_at: "w.created_at",
+      updated_at: "w.updated_at",
+    };
+    const safeSortBy = sortColumns[String(sort_by || "").toLowerCase()] || "w.created_at";
+    const safeSortOrder = String(sort_order || "").toLowerCase() === "asc" ? "ASC" : "DESC";
+
+    try {
+      const whereParams = [userId];
+      const whereParts = ["w.deleted_at IS NULL", "w.user_id = $1"];
+      const search = buildPartialSearchClause(
+        ["w.name", "w.description", "w.workout_type", "w.difficulty"],
+        q,
+        whereParams.length + 1
+      );
+      if (search.clause) {
+        whereParts.push(search.clause);
+        whereParams.push(...search.params);
+      }
+      const whereSql = whereParts.join(" AND ");
+
+      const countRes = await db.query(
+        `SELECT COUNT(*)::int AS total FROM workouts w WHERE ${whereSql}`,
+        whereParams
+      );
+      const total = countRes.rows[0]?.total || 0;
+
+      const params = [...whereParams];
+      let paginationSql = "";
+      if (!disablePagination) {
+        params.push(limitNum, offset);
+        paginationSql = ` LIMIT $${params.length - 1} OFFSET $${params.length}`;
+      }
+
+      if (!include_exercises) {
+        const result = await db.query(
+          `SELECT *
+           FROM workouts w
+           WHERE ${whereSql}
+           ORDER BY ${safeSortBy} ${safeSortOrder}, w.id DESC
+           ${paginationSql}`,
+          params
+        );
+        return {
+          workouts: result.rows,
+          ...(disablePagination
+            ? {}
+            : {
+                pagination: {
+                  ...generatePagination(pageNum, limitNum, total),
+                  sort_by: Object.keys(sortColumns).find((k) => sortColumns[k] === safeSortBy) || "created_at",
+                  sort_order: safeSortOrder.toLowerCase(),
+                },
+              }),
+        };
+      }
+
+      const result = await db.query(
+        `
+        SELECT
+          w.*,
+          COALESCE(
+            json_agg(
+              json_build_object(
+                'exercise_id', e.id,
+                'title', e.title,
+                'description', e.description,
+                'video_url', e.video_url,
+                'thumbnail_url', e.thumbnail_url,
+                'audio_url', e.audio_url,
+                'instructions', e.instructions,
+                'category', e.category,
+                'target_muscle_group', e.target_muscle_group,
+                'duration_seconds', e.duration_seconds,
+                'difficulty', e.difficulty,
+                'default_rest_time_seconds', e.default_rest_time_seconds,
+                'sequence_order', we.sequence_order,
+                'target_sets', we.target_sets,
+                'rest_time_seconds', we.rest_time_seconds,
+                'exercise_duration_seconds', we.exercise_duration_seconds,
+                'notes', we.notes
+              )
+              ORDER BY we.sequence_order
+            ) FILTER (WHERE e.id IS NOT NULL),
+            '[]'::json
+          ) AS exercises
+        FROM workouts w
+        LEFT JOIN workout_exercises we ON we.workout_id = w.id
+        LEFT JOIN exercises e ON e.id = we.exercise_id
+        WHERE ${whereSql}
+        GROUP BY w.id
+        ORDER BY ${safeSortBy} ${safeSortOrder}, w.id DESC
+        ${paginationSql}
+        `,
+        params
+      );
+
+      return {
+        workouts: result.rows.map((row) => ({
+          ...row,
+          ...WorkoutService._computeWorkoutCounts(row.exercises || []),
+        })),
+        ...(disablePagination
+          ? {}
+          : {
+              pagination: {
+                ...generatePagination(pageNum, limitNum, total),
+                sort_by: Object.keys(sortColumns).find((k) => sortColumns[k] === safeSortBy) || "created_at",
+                sort_order: safeSortOrder.toLowerCase(),
+              },
+            }),
+      };
+    } catch (error) {
+      logger.error(`Error finding user workouts: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
    * Create a new workout template (AI-generated from frontend)
    */
   static async create(workoutData) {
+    await WorkoutService.ensureWorkoutSchemaColumns();
     const {
+      user_id,
+      week_number,
+      day_of_week,
+      plan_date,
+      status,
+      assigned_reason,
       name,
       description,
       duration_minutes,
@@ -387,17 +661,24 @@ class WorkoutService {
       // 1. Create Workout
       const workoutRes = await client.query(
         `INSERT INTO workouts (
+           user_id,
            name,
            description,
            duration_minutes,
            difficulty,
            workout_type,
            estimated_calories,
-           thumbnail_url
+           thumbnail_url,
+           week_number,
+           day_of_week,
+           plan_date,
+           status,
+           assigned_reason
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12, 'pending'), $13)
          RETURNING *`,
         [
+          user_id ?? null,
           name,
           description,
           duration_minutes,
@@ -405,6 +686,11 @@ class WorkoutService {
           workout_type,
           estimated_calories,
           thumbnail_url,
+          week_number ?? null,
+          day_of_week ?? null,
+          plan_date ?? null,
+          status ?? null,
+          assigned_reason ?? null,
         ]
       );
       const workoutId = workoutRes.rows[0].id;
@@ -412,28 +698,37 @@ class WorkoutService {
       // 2. Map Exercises (assuming ids are provided)
       if (exercises && Array.isArray(exercises)) {
         for (const [index, exercise] of exercises.entries()) {
+          const normalizedTargetSets =
+            Array.isArray(exercise.target_sets) && exercise.target_sets.length > 0
+              ? exercise.target_sets
+              : Array.from({ length: Number(exercise.sets || 0) }, (_, idx) => ({
+                  set_number: idx + 1,
+                  target_reps:
+                    exercise.reps !== undefined && exercise.reps !== null
+                      ? Number(exercise.reps)
+                      : null,
+                  target_weight:
+                    exercise.weight !== undefined && exercise.weight !== null
+                      ? Number(exercise.weight)
+                      : null,
+                }));
+
           await client.query(
             `INSERT INTO workout_exercises (
                workout_id,
                exercise_id,
                sequence_order,
-               default_sets,
-               default_reps,
-               default_weight,
                target_sets,
                rest_time_seconds,
                exercise_duration_seconds,
                notes
              ) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
             [
               workoutId, 
               exercise.id, 
               index + 1, 
-              exercise.sets || 3, 
-              exercise.reps || 10, 
-              exercise.weight || 0.0, 
-              JSON.stringify(exercise.target_sets || []),
+              JSON.stringify(normalizedTargetSets),
               exercise.rest_time_seconds,
               exercise.exercise_duration_seconds,
               exercise.notes,

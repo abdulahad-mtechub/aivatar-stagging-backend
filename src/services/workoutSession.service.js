@@ -2,14 +2,44 @@ const db = require("../config/database");
 const logger = require("../utils/logger");
 
 class WorkoutSessionService {
+  static _sessionSchemaEnsured = false;
+
+  static async ensureSessionSchema() {
+    if (WorkoutSessionService._sessionSchemaEnsured) return;
+    await db.query(
+      "ALTER TABLE user_workout_sessions ADD COLUMN IF NOT EXISTS session_notes TEXT"
+    );
+    WorkoutSessionService._sessionSchemaEnsured = true;
+  }
+
   /**
    * Start a new workout session
    */
   static async startSession(userId, workoutId) {
+    await WorkoutSessionService.ensureSessionSchema();
     try {
+      // `workoutId` may be either:
+      // - template workout id (user_id IS NULL)
+      // - or a user-specific plan-row id stored inside `workouts` (user_id IS NOT NULL)
+      // In the latter case, we must store the template workout id in `user_workout_sessions`.
+      const workoutRes = await db.query(
+        `SELECT id, user_id, workout_id
+         FROM workouts
+         WHERE id = $1
+           AND deleted_at IS NULL`,
+        [workoutId]
+      );
+      const workout = workoutRes.rows[0];
+      if (!workout) throw new Error("Workout not found");
+
+      const actualTemplateWorkoutId = workout.user_id
+        ? (workout.workout_id || workout.id)
+        : workout.id;
+      if (!actualTemplateWorkoutId) throw new Error("Template workout id not found");
+
       const result = await db.query(
         "INSERT INTO user_workout_sessions (user_id, workout_id) VALUES ($1, $2) RETURNING *",
-        [userId, workoutId]
+        [userId, actualTemplateWorkoutId]
       );
       return result.rows[0];
     } catch (error) {
@@ -22,6 +52,7 @@ class WorkoutSessionService {
    * Log a set for an exercise in a session
    */
   static async logSet(sessionId, exerciseId, setData) {
+    await WorkoutSessionService.ensureSessionSchema();
     const { set_number, reps, weight, reps_target, weight_target, rest_time } = setData;
     try {
       const result = await db.query(
@@ -40,40 +71,92 @@ class WorkoutSessionService {
   /**
    * Complete a workout session and calculate summary
    */
-  static async completeSession(sessionId) {
+  static async completeSession({ userId, sessionId = null, workoutId = null, startTime = null, note = null }) {
+    await WorkoutSessionService.ensureSessionSchema();
     try {
-      // 1. Calculate stats (Total Volume, Sets Done)
+      let activeSessionId = sessionId;
+
+      // New flow: create session implicitly on complete if session_id is not provided.
+      if (!activeSessionId) {
+        if (!workoutId) {
+          throw new Error("workout_id is required when session_id is not provided");
+        }
+
+        const workoutRes = await db.query(
+          `SELECT id, user_id
+           FROM workouts
+           WHERE id = $1
+             AND deleted_at IS NULL`,
+          [workoutId]
+        );
+        const workout = workoutRes.rows[0];
+        if (!workout) throw new Error("Workout not found");
+
+        const resolvedStartTime = startTime ? new Date(startTime) : new Date();
+        const insertRes = await db.query(
+          `INSERT INTO user_workout_sessions (user_id, workout_id, start_time, session_notes)
+           VALUES ($1, $2, $3, $4)
+           RETURNING *`,
+          [userId, workout.id, resolvedStartTime, note ?? null]
+        );
+        activeSessionId = insertRes.rows[0].id;
+      } else if (startTime || note !== null) {
+        // Backward compatibility: allow updating these fields when completing by session_id.
+        await db.query(
+          `UPDATE user_workout_sessions
+           SET start_time = COALESCE($1, start_time),
+               session_notes = COALESCE($2, session_notes),
+               updated_at = NOW()
+           WHERE id = $3`,
+          [startTime || null, note, activeSessionId]
+        );
+      }
+
+      // 1. Calculate stats used by workout-complete UI
       const statsRes = await db.query(
-        `SELECT SUM(actual_reps * actual_weight) as total_volume, COUNT(*) as sets_done
+        `SELECT
+           COUNT(*) as sets_done,
+           COUNT(DISTINCT exercise_id) as exercises_done,
+           COALESCE(SUM(actual_reps), 0) as reps_done,
+           COALESCE(SUM(target_reps), 0) as target_reps_total
          FROM workout_sets 
          WHERE session_id = $1 AND is_completed = true`,
-        [sessionId]
+        [activeSessionId]
       );
 
-      const { total_volume, sets_done } = statsRes.rows[0];
+      const { sets_done, exercises_done, reps_done, target_reps_total } = statsRes.rows[0];
 
       // 2. Mark session as completed
       const result = await db.query(
         `UPDATE user_workout_sessions 
          SET end_time = NOW(), status = 'completed', total_volume = $1, calories_burned = $2
          WHERE id = $3 RETURNING *`,
-        [total_volume || 0, (sets_done || 0) * 15, sessionId] // Simple calorie estimation
+        [0, (sets_done || 0) * 15, activeSessionId] // Simple calorie estimation
       );
 
       const row = result.rows[0];
+      const setsCompleted = Number(sets_done || 0);
+      const exercisesDone = Number(exercises_done || 0);
+      const repsDone = Number(reps_done || 0);
+      const targetRepsTotal = Number(target_reps_total || 0);
+      const caloriesBurned = Number(row.calories_burned || 0);
+      const start = row.start_time ? new Date(row.start_time).getTime() : null;
+      const end = row.end_time ? new Date(row.end_time).getTime() : null;
+      const totalTimeSeconds =
+        start && end && end >= start ? Math.floor((end - start) / 1000) : 0;
+      const mm = String(Math.floor(totalTimeSeconds / 60)).padStart(2, "0");
+      const ss = String(totalTimeSeconds % 60).padStart(2, "0");
 
-      // Provide clearer metric names for frontend (keep old fields for compatibility)
       return {
-        ...row,
-        total_sets_completed: Number(sets_done || 0),
-        total_workout_volume: Number(total_volume || 0), // alias of total_volume
-        total_lifted_volume: Number(total_volume || 0), // reps * weight (sum), alias for UI wording
-        calories_burned_estimated: row.calories_burned,
-        metrics: {
-          total_sets_completed: Number(sets_done || 0),
-          total_lifted_volume: Number(total_volume || 0),
-          calories_burned_estimated: row.calories_burned
-        }
+        session_id: row.id,
+        total_time: `${mm}:${ss}`,
+        total_time_seconds: totalTimeSeconds,
+        exercises_done: exercisesDone,
+        sets_completed: setsCompleted,
+        reps_completed: repsDone,
+        reps_target_total: targetRepsTotal,
+        calories_burned: caloriesBurned,
+        note: row.session_notes || null,
       };
     } catch (error) {
       logger.error(`Error completing workout session: ${error.message}`);
@@ -86,6 +169,7 @@ class WorkoutSessionService {
    * Includes: session, workout, exercises (targets), and logged sets progress
    */
   static async getSessionDetail(sessionId, userId) {
+    await WorkoutSessionService.ensureSessionSchema();
     try {
       const sessionRes = await db.query(
         `SELECT s.*, w.name as workout_name, w.description as workout_description,
@@ -104,9 +188,6 @@ class WorkoutSessionService {
         `SELECT
            e.*,
            we.sequence_order,
-           we.default_sets,
-           we.default_reps,
-           we.default_weight,
            we.target_sets,
            we.rest_time_seconds,
            we.exercise_duration_seconds,
@@ -136,12 +217,7 @@ class WorkoutSessionService {
         const setsPlanned =
           (Array.isArray(ex.target_sets) && ex.target_sets.length > 0
             ? ex.target_sets
-            : Array.from({ length: Number(ex.default_sets || 0) }, (_, idx) => ({
-                set_number: idx + 1,
-                target_reps: ex.default_reps ?? null,
-                target_weight: ex.default_weight ?? null,
-                rest_time_seconds: ex.rest_time_seconds ?? ex.default_rest_time_seconds ?? null,
-              })));
+            : []);
 
         const sets = setsPlanned.map((s) => {
           const key = `${ex.id}:${s.set_number}`;
@@ -160,7 +236,7 @@ class WorkoutSessionService {
 
         return {
           ...ex,
-          video_url: ex.video_url || ex.media_url || null,
+          video_url: ex.video_url || null,
           sets,
         };
       });
@@ -173,6 +249,7 @@ class WorkoutSessionService {
           status: session.status,
           start_time: session.start_time,
           end_time: session.end_time,
+          note: session.session_notes,
           total_volume: session.total_volume,
           calories_burned: session.calories_burned,
           created_at: session.created_at,
@@ -202,6 +279,7 @@ class WorkoutSessionService {
    * Get previous session best set for an exercise (for "Previous Session" card)
    */
   static async getExercisePreviousSession(exerciseId, userId) {
+    await WorkoutSessionService.ensureSessionSchema();
     try {
       const res = await db.query(
         `

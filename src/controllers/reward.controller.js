@@ -56,6 +56,11 @@ class RewardController {
     const data = await RewardService.getUserEarningHistory(req.user.id, req.query);
     return successResponse(res, { message: "Earning history fetched", data });
   });
+
+  static getLeaderboard = asyncHandler(async (req, res) => {
+    const data = await RewardService.getLeaderboard(req.query);
+    return successResponse(res, { message: "Leaderboard fetched", data });
+  });
 }
 
 module.exports = RewardController;

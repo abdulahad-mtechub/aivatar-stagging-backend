@@ -1,5 +1,7 @@
 const db = require("../config/database");
 const logger = require("../utils/logger");
+const { validatePaginationParams, generatePagination } = require("../utils/pagination");
+const { parseBoolean, buildPartialSearchClause } = require("../utils/partialSearch");
 
 /**
  * User Service - handles user-related database operations
@@ -18,6 +20,7 @@ class UserService {
         p_id,
         p_user_id,
         p_profile_image,
+        p_address,
         p_reminder,
         p_plan_key,
         p_goal_id,
@@ -45,6 +48,7 @@ class UserService {
               id: p_id,
               user_id: p_user_id,
               profile_image: p_profile_image,
+              address: p_address,
               reminder: p_reminder,
               plan_key: p_plan_key,
               goal_id: p_goal_id,
@@ -102,28 +106,46 @@ class UserService {
   }
 
   static async getUsersWithProfiles(whereSql, whereParams, options = {}) {
-    const { page = 1, limit = 10 } = options;
-    const pageNum = parseInt(page, 10);
-    const limitNum = parseInt(limit, 10);
-    const offset = (pageNum - 1) * limitNum;
+    const { page = 1, limit = 10, q, not_pagination } = options;
+    const disablePagination = parseBoolean(not_pagination, false);
+    const { page: pageNum, limit: limitNum, offset } = validatePaginationParams(page, limit);
 
     const { orderByClause, sort_by, sort_order } = this.buildWithProfileSort(options);
+    const paramsBase = [...whereParams];
+    const whereParts = [whereSql];
+    const search = buildPartialSearchClause(
+      ["u.name", "u.email", "p.plan_key"],
+      q,
+      paramsBase.length + 1
+    );
+    if (search.clause) {
+      whereParts.push(search.clause);
+      paramsBase.push(...search.params);
+    }
+    const finalWhereSql = whereParts.join(" AND ");
 
     const countRes = await db.query(
       `SELECT COUNT(*) AS count
        FROM users u
-       WHERE ${whereSql}`,
-      whereParams
+       LEFT JOIN profiles p ON p.user_id = u.id AND p.deleted_at IS NULL
+       WHERE ${finalWhereSql}`,
+      paramsBase
     );
     const total = parseInt(countRes.rows[0]?.count || "0", 10);
 
-    const params = [...whereParams, limitNum, offset];
+    const params = [...paramsBase];
+    let paginationSql = "";
+    if (!disablePagination) {
+      params.push(limitNum, offset);
+      paginationSql = `LIMIT $${params.length - 1} OFFSET $${params.length}`;
+    }
     const rows = await db.query(
       `SELECT
          u.*,
          p.id AS p_id,
          p.user_id AS p_user_id,
          p.profile_image AS p_profile_image,
+         p.address AS p_address,
          p.reminder AS p_reminder,
          p.plan_key AS p_plan_key,
          p.goal_id AS p_goal_id,
@@ -141,22 +163,23 @@ class UserService {
          p.deleted_at AS p_deleted_at
        FROM users u
        LEFT JOIN profiles p ON p.user_id = u.id AND p.deleted_at IS NULL
-       WHERE ${whereSql}
+       WHERE ${finalWhereSql}
        ORDER BY ${orderByClause}
-       LIMIT $${whereParams.length + 1} OFFSET $${whereParams.length + 2}`,
+       ${paginationSql}`,
       params
     );
 
     return {
       users: this.mapUserProfileRows(rows.rows),
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        total,
-        pages: Math.ceil(total / limitNum),
-        sort_by,
-        sort_order,
-      },
+      ...(disablePagination
+        ? {}
+        : {
+            pagination: {
+              ...generatePagination(pageNum, limitNum, total),
+              sort_by,
+              sort_order,
+            },
+          }),
     };
   }
 

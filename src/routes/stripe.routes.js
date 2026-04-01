@@ -17,6 +17,10 @@ router.get("/my-last-subscription", protect, stripeController.getMyLastSubscript
 
 // Billing portal
 router.post("/create-portal-session", protect, stripeController.createPortalSession);
+router.get("/customer-portal", protect, stripeController.getCustomerPortal);
+router.post("/cancel-subscription", protect, stripeController.cancelSubscription);
+router.post("/upgrade-preview", protect, stripeController.upgradePreview);
+router.post("/upgrade-subscription", protect, stripeController.upgradeSubscription);
 
 module.exports = router;
 

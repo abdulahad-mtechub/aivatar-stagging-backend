@@ -24,7 +24,7 @@ router.patch("/:id", protect, workoutPlanController.updateSlot);
 // Missed workout screen actions
 router.post("/:id/make-up-tomorrow", protect, workoutPlanController.makeUpTomorrow);
 router.post("/:id/rest-day", protect, workoutPlanController.restDay);
-router.post("/:id/quick-session", protect, workoutPlanController.quickSession);
+router.get("/:id/quick-session", protect, workoutPlanController.quickSession);
 
 module.exports = router;
 

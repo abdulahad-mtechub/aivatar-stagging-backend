@@ -4,6 +4,7 @@ const RewardController = require("../controllers/reward.controller");
 const { protect, restrictTo } = require("../middlewares/auth.middleware");
 
 // ─── Admin: Reward Rule Management ───────────────────────────────────────────
+router.get("/leaderboard", protect, restrictTo("admin"), RewardController.getLeaderboard);
 router.get("/rules", RewardController.getAllRules);
 router.get("/rules/:id", protect, restrictTo("admin"), RewardController.getRuleById);
 router.post("/rules", protect, restrictTo("admin"), RewardController.createRule);

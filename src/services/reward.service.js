@@ -1,6 +1,8 @@
 const db = require("../config/database");
 const logger = require("../utils/logger");
 const AppError = require("../utils/appError");
+const { validatePaginationParams, generatePagination } = require("../utils/pagination");
+const { parseBoolean, normalizeSearchTerm } = require("../utils/partialSearch");
 
 function isUniqueViolation(error) {
   return error && error.code === "23505";
@@ -234,6 +236,158 @@ class RewardService {
       };
     } catch (error) {
       logger.error(`Error getting earning history: ${error.message}`);
+      throw error;
+    }
+  }
+
+  static async getLeaderboard(options = {}) {
+    const {
+      page = 1,
+      limit = 10,
+      q,
+      sort_by = "totalCoins",
+      sort_order = "desc",
+      not_pagination,
+    } = options;
+
+    const disablePagination = parseBoolean(not_pagination, false);
+    const { page: pageNum, limit: limitNum, offset } = validatePaginationParams(page, limit);
+    const searchTerm = normalizeSearchTerm(q);
+
+    const safeSortMap = {
+      totalcoins: "total_coins",
+      rank: "rank",
+      name: "name",
+      email: "email",
+      created_at: "created_at",
+    };
+    const requestedSort = String(sort_by || "").toLowerCase();
+    const effectiveSort = safeSortMap[requestedSort] || "total_coins";
+    const sortDir = String(sort_order || "").toLowerCase() === "asc" ? "ASC" : "DESC";
+
+    try {
+      const params = [];
+      const whereParts = [];
+      if (searchTerm) {
+        params.push(`%${searchTerm}%`);
+        whereParts.push(
+          `(u.name ILIKE $${params.length} OR u.email ILIKE $${params.length} OR COALESCE(b.title, '') ILIKE $${params.length})`
+        );
+      }
+      const whereSql = whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "";
+
+      const query = `
+        WITH balances AS (
+          SELECT
+            u.id AS user_id,
+            COALESCE(
+              SUM(
+                CASE
+                  WHEN pt.type = 'earned' THEN pt.points_amount
+                  ELSE -pt.points_amount
+                END
+              ),
+              0
+            )::int AS total_coins
+          FROM users u
+          LEFT JOIN points_transaction pt ON pt.user_id = u.id
+          WHERE u.deleted_at IS NULL AND u.role = 'user'
+          GROUP BY u.id
+        ),
+        ranked AS (
+          SELECT
+            u.id,
+            u.name,
+            u.email,
+            p.profile_image AS avatar,
+            u.created_at,
+            bal.total_coins,
+            ROW_NUMBER() OVER (ORDER BY bal.total_coins DESC, u.id ASC)::int AS rank,
+            json_build_object(
+              'id', b.id,
+              'title', b.title,
+              'max_points', b.max_points,
+              'badge_image', b.badge_image,
+              'color', b.color,
+              'color_value', b.color_value,
+              'created_at', b.created_at,
+              'updated_at', b.updated_at
+            ) AS current_badge
+          FROM users u
+          JOIN balances bal ON bal.user_id = u.id
+          LEFT JOIN profiles p ON p.user_id = u.id AND p.deleted_at IS NULL
+          LEFT JOIN LATERAL (
+            SELECT b1.*
+            FROM badges b1
+            WHERE b1.max_points <= bal.total_coins
+            ORDER BY b1.max_points DESC, b1.id DESC
+            LIMIT 1
+          ) b ON TRUE
+          ${whereSql}
+        )
+        SELECT *
+        FROM ranked
+      `;
+
+      const result = await db.query(query, params);
+      const rows = result.rows || [];
+
+      const topByRank = [...rows]
+        .filter((r) => r.rank <= 3)
+        .sort((a, b) => a.rank - b.rank);
+
+      const mapUser = (r) => ({
+        name: r.name,
+        email: r.email,
+        rank: r.rank,
+        avatar: r.avatar,
+        currentBadge: r.current_badge && r.current_badge.id ? r.current_badge : null,
+        totalCoins: r.total_coins,
+      });
+
+      const topUsers = {
+        first: topByRank[0] ? mapUser(topByRank[0]) : null,
+        second: topByRank[1] ? mapUser(topByRank[1]) : null,
+        third: topByRank[2] ? mapUser(topByRank[2]) : null,
+      };
+
+      const comparator = (a, b) => {
+        const dir = sortDir === "ASC" ? 1 : -1;
+        if (effectiveSort === "name") {
+          return dir * String(a.name || "").localeCompare(String(b.name || ""));
+        }
+        if (effectiveSort === "email") {
+          return dir * String(a.email || "").localeCompare(String(b.email || ""));
+        }
+        if (effectiveSort === "created_at") {
+          return dir * (new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+        }
+        return dir * ((a[effectiveSort] || 0) - (b[effectiveSort] || 0));
+      };
+
+      const otherRows = rows
+        .filter((r) => r.rank > 3)
+        .sort(comparator);
+
+      const pagedOtherRows = disablePagination
+        ? otherRows
+        : otherRows.slice(offset, offset + limitNum);
+
+      return {
+        topUsers,
+        otherUsers: pagedOtherRows.map(mapUser),
+        ...(disablePagination
+          ? {}
+          : {
+              pagination: {
+                ...generatePagination(pageNum, limitNum, otherRows.length),
+                sort_by: Object.keys(safeSortMap).find((k) => safeSortMap[k] === effectiveSort) || "totalcoins",
+                sort_order: sortDir.toLowerCase(),
+              },
+            }),
+      };
+    } catch (error) {
+      logger.error(`Error getting leaderboard: ${error.message}`);
       throw error;
     }
   }

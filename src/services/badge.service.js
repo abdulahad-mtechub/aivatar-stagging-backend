@@ -1,6 +1,8 @@
 const db = require("../config/database");
 const logger = require("../utils/logger");
 const AppError = require("../utils/appError");
+const { validatePaginationParams, generatePagination } = require("../utils/pagination");
+const { parseBoolean, buildPartialSearchClause } = require("../utils/partialSearch");
 
 function isUniqueTitleViolation(error) {
   return error && error.code === "23505";
@@ -18,10 +20,63 @@ class BadgeService {
   /**
    * Get all badges (user-facing)
    */
-  static async getAllBadges() {
+  static async getAllBadges(options = {}) {
+    const {
+      page = 1,
+      limit = 10,
+      q,
+      sort_by = "max_points",
+      sort_order = "asc",
+      not_pagination,
+    } = options;
+    const disablePagination = parseBoolean(not_pagination, false);
+    const { page: pageNum, limit: limitNum, offset } = validatePaginationParams(page, limit);
+
+    const sortColumns = {
+      id: "id",
+      title: "title",
+      max_points: "max_points",
+      created_at: "created_at",
+      updated_at: "updated_at",
+    };
+    const safeSortBy = sortColumns[String(sort_by || "").toLowerCase()] || "max_points";
+    const safeSortOrder = String(sort_order || "").toLowerCase() === "desc" ? "DESC" : "ASC";
+
     try {
-      const result = await db.query("SELECT * FROM badges ORDER BY max_points ASC");
-      return result.rows;
+      const search = buildPartialSearchClause(["title", "color", "color_value"], q, 1);
+      const whereSql = search.clause ? `WHERE ${search.clause}` : "";
+
+      const countRes = await db.query(
+        `SELECT COUNT(*)::int AS total FROM badges ${whereSql}`,
+        search.params
+      );
+      const total = countRes.rows[0]?.total || 0;
+
+      const params = [...search.params];
+      let paginationSql = "";
+      if (!disablePagination) {
+        params.push(limitNum, offset);
+        paginationSql = ` LIMIT $${params.length - 1} OFFSET $${params.length}`;
+      }
+
+      const result = await db.query(
+        `SELECT * FROM badges ${whereSql}
+         ORDER BY ${safeSortBy} ${safeSortOrder}, id DESC
+         ${paginationSql}`,
+        params
+      );
+      return {
+        badges: result.rows,
+        ...(disablePagination
+          ? {}
+          : {
+              pagination: {
+                ...generatePagination(pageNum, limitNum, total),
+                sort_by: Object.keys(sortColumns).find((k) => sortColumns[k] === safeSortBy) || "max_points",
+                sort_order: safeSortOrder.toLowerCase(),
+              },
+            }),
+      };
     } catch (error) {
       logger.error(`Error getting all badges: ${error.message}`);
       throw error;

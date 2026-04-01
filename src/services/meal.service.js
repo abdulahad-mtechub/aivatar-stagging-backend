@@ -1,5 +1,7 @@
 const db = require("../config/database");
 const logger = require("../utils/logger");
+const { validatePaginationParams, generatePagination } = require("../utils/pagination");
+const { parseBoolean, buildPartialSearchClause } = require("../utils/partialSearch");
 
 /**
  * Meal Service - Handles global meal library and nutrition
@@ -179,8 +181,61 @@ class MealService {
   /**
    * Get all meals for a specific user (flat list)
    */
-  static async findAll(userId) {
+  static async findAll(userId, options = {}) {
+    const {
+      page = 1,
+      limit = 10,
+      q,
+      sort_by = "created_at",
+      sort_order = "desc",
+      not_pagination,
+    } = options;
+
+    const disablePagination = parseBoolean(not_pagination, false);
+    const { page: pageNum, limit: limitNum, offset } = validatePaginationParams(page, limit);
+
+    const sortColumns = {
+      id: "m.id",
+      title: "m.title",
+      category: "m.category",
+      complexity: "m.complexity",
+      preparation_time: "m.preparation_time",
+      created_at: "m.created_at",
+      updated_at: "m.updated_at",
+    };
+    const safeSortBy = sortColumns[String(sort_by || "").toLowerCase()] || "m.created_at";
+    const safeSortOrder = String(sort_order || "").toLowerCase() === "asc" ? "ASC" : "DESC";
+
     try {
+      const whereParams = [userId];
+      const whereParts = ["m.user_id = $1"];
+
+      const search = buildPartialSearchClause(
+        ["m.title", "m.description", "m.category", "m.complexity"],
+        q,
+        whereParams.length + 1
+      );
+      if (search.clause) {
+        whereParts.push(search.clause);
+        whereParams.push(...search.params);
+      }
+
+      const whereSql = whereParts.join(" AND ");
+      const countRes = await db.query(
+        `SELECT COUNT(*)::int AS total
+         FROM meals m
+         WHERE ${whereSql}`,
+        whereParams
+      );
+      const total = countRes.rows[0]?.total || 0;
+
+      const dataParams = [...whereParams];
+      let paginationSql = "";
+      if (!disablePagination) {
+        dataParams.push(limitNum, offset);
+        paginationSql = ` LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`;
+      }
+
       const result = await db.query(
         `SELECT m.*,
                 e.calories, e.protein, e.carbs, e.fats,
@@ -202,12 +257,24 @@ class MealService {
          FROM meals m
          LEFT JOIN meal_energy e ON m.energy_id = e.id
          LEFT JOIN meal_ingredients mi ON mi.meal_id = m.id
-         WHERE m.user_id = $1
+         WHERE ${whereSql}
          GROUP BY m.id, e.id
-         ORDER BY m.created_at DESC`,
-        [userId]
+         ORDER BY ${safeSortBy} ${safeSortOrder}, m.id DESC
+         ${paginationSql}`,
+        dataParams
       );
-      return result.rows;
+      return {
+        meals: result.rows,
+        ...(disablePagination
+          ? {}
+          : {
+              pagination: {
+                ...generatePagination(pageNum, limitNum, total),
+                sort_by: Object.keys(sortColumns).find((k) => sortColumns[k] === safeSortBy) || "created_at",
+                sort_order: safeSortOrder.toLowerCase(),
+              },
+            }),
+      };
     } catch (error) {
       logger.error(`Error finding all meals: ${error.message}`);
       throw error;
