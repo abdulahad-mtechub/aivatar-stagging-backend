@@ -5,6 +5,7 @@ const { protect } = require("../middlewares/auth.middleware");
 
 // Authenticated user — own profile
 router.get("/me", protect, profileController.getMyProfile);
+router.put("/me", protect, profileController.updateMyProfile);
 router.put("/me/goal", protect, profileController.updateMyGoalSettings);
 router.post("/", protect, profileController.createProfile);
 router.put("/:id", protect, profileController.updateProfile);

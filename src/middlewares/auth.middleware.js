@@ -66,6 +66,18 @@ exports.protect = async (req, res, next) => {
 };
 
 /**
+ * For POST /change-password: allow unauthenticated body { email, newPassword }
+ * after verify-otp (forgot-password flow); otherwise require JWT like protect.
+ */
+exports.changePasswordGate = async (req, res, next) => {
+  const { email, newPassword } = req.body || {};
+  if (email && newPassword) {
+    return next();
+  }
+  return exports.protect(req, res, next);
+};
+
+/**
  * Middleware to restrict access to certain roles
  */
 exports.restrictTo = (...roles) => {

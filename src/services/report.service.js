@@ -5,21 +5,77 @@ const MeasurementService = require("./measurement.service");
 
 class ReportService {
   static _toYmd(dateValue) {
+    if (!dateValue) return null;
+    if (typeof dateValue === "string" && /^\d{4}-\d{2}-\d{2}$/.test(dateValue)) {
+      return dateValue;
+    }
     const d = new Date(dateValue);
-    return d.toISOString().split("T")[0];
+    if (Number.isNaN(d.getTime())) return null;
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
   }
 
-  static async getNutritionSeries(userId, endDate) {
-    // Start from the user's first planned/completed meal date; fallback to endDate.
-    const minDateRes = await db.query(
-      `SELECT MIN(COALESCE(plan_date, created_at::date))::date AS min_date
-       FROM meal_plans
-       WHERE user_id = $1`,
-      [userId]
-    );
-    const minDate = minDateRes.rows[0]?.min_date;
-    const startDate = minDate ? ReportService._toYmd(minDate) : endDate;
+  static _shiftYmd(ymd, days) {
+    const d = new Date(`${ymd}T00:00:00`);
+    d.setDate(d.getDate() + days);
+    return ReportService._toYmd(d);
+  }
 
+  static _resolveDailyFilter(query = {}) {
+    const today = ReportService._toYmd(new Date());
+    const toDate = ReportService._toYmd(query.to_date || query.date || today) || today;
+    const presetRaw = String(query.filter || query.preset || query.day_filter || "")
+      .trim()
+      .toLowerCase();
+
+    const presetMap = {
+      "24h": 0,
+      "1d": 1,
+      "3d": 3,
+      "5d": 5,
+      "7d": 7,
+      "1m": 30,
+    };
+
+    const hasCustomRange = query.from_date && query.to_date;
+    if (hasCustomRange) {
+      const fromDate = ReportService._toYmd(query.from_date);
+      const customToDate = ReportService._toYmd(query.to_date);
+      if (!fromDate || !customToDate) {
+        return { invalid: true, reason: "Invalid from_date or to_date. Use YYYY-MM-DD." };
+      }
+      if (fromDate > customToDate) {
+        return { invalid: true, reason: "from_date cannot be greater than to_date." };
+      }
+      return {
+        mode: "custom",
+        filter: "custom",
+        from_date: fromDate,
+        to_date: customToDate,
+      };
+    }
+
+    if (presetRaw && Object.prototype.hasOwnProperty.call(presetMap, presetRaw)) {
+      const days = presetMap[presetRaw];
+      return {
+        mode: "preset",
+        filter: presetRaw,
+        from_date: days === 0 ? toDate : ReportService._shiftYmd(toDate, -days),
+        to_date: toDate,
+      };
+    }
+
+    return {
+      mode: "single_day",
+      filter: "date",
+      from_date: toDate,
+      to_date: toDate,
+    };
+  }
+
+  static async getNutritionSeries(userId, startDate, endDate) {
     const seriesRes = await db.query(
       `WITH days AS (
          SELECT generate_series($2::date, $3::date, interval '1 day')::date AS day
@@ -52,7 +108,7 @@ class ReportService {
     );
 
     return {
-      start_date: startDate,
+      from_date: startDate,
       end_date: endDate,
       carbs: seriesRes.rows.map((r) => ({
         date: ReportService._toYmd(r.day),
@@ -76,8 +132,15 @@ class ReportService {
   /**
    * Daily Report: Nutrition + Streak + Activity
    */
-  static async getDailyReport(userId, date = new Date().toISOString().split('T')[0]) {
+  static async getDailyReport(userId, query = {}) {
     try {
+      const resolved = ReportService._resolveDailyFilter(query);
+      if (resolved.invalid) {
+        throw new Error(resolved.reason);
+      }
+      const startDate = resolved.from_date;
+      const endDate = resolved.to_date;
+
       // 1. Fetch Nutrition Targets from Profile
       const profile = await db.query(
         `SELECT target_calories, target_protein, target_carbs, target_fats 
@@ -102,8 +165,11 @@ class ReportService {
          JOIN meals m ON mp.meal_id = m.id
          JOIN meal_energy e ON m.energy_id = e.id
          WHERE mp.user_id = $1 AND mp.status = 'completed'
-         AND (mp.plan_date = $2 OR (mp.plan_date IS NULL AND CURRENT_DATE = $2))`,
-        [userId, date]
+         AND (
+           mp.plan_date = $2::date
+           OR (mp.plan_date IS NULL AND mp.created_at::date = $2::date)
+         )`,
+        [userId, endDate]
       );
 
       const nutrition = consumed.rows[0] || { calories: 0, protein: 0, carbs: 0, fats: 0 };
@@ -118,6 +184,34 @@ class ReportService {
       const summaryList = Array.isArray(streakResult?.summary) ? streakResult.summary : [];
       const generalStreak =
         summaryList.find((s) => s.activity_type === "general") || { current_streak_days: 0 };
+
+      // 4. Workout card (for selected date): latest completed workout on that date.
+      const workoutCardRes = await db.query(
+        `SELECT
+           s.id,
+           s.end_time,
+           w.name AS workout_name
+         FROM user_workout_sessions s
+         LEFT JOIN workouts w ON w.id = s.workout_id
+         WHERE s.user_id = $1
+           AND s.status = 'completed'
+           AND s.end_time::date = $2::date
+         ORDER BY s.end_time DESC, s.id DESC
+         LIMIT 1`,
+        [userId, endDate]
+      );
+      const latestCompletedWorkout = workoutCardRes.rows[0] || null;
+
+      // 5. Coins card (for selected date): total earned coins on that date.
+      const coinsCardRes = await db.query(
+        `SELECT COALESCE(SUM(points_amount), 0)::int AS coins_earned
+         FROM points_transaction
+         WHERE user_id = $1
+           AND type = 'earned'
+           AND created_at::date = $2::date`,
+        [userId, endDate]
+      );
+      const coinsEarnedOnDate = Number(coinsCardRes.rows[0]?.coins_earned || 0);
 
       // 4. Calculate Progress
       const progress = {
@@ -146,14 +240,43 @@ class ReportService {
       // Use Calories progress as the primary "Target Met" metric for the hero circle
       const targetMetPercent = progress.calories.percent;
 
-      const nutrition_series = await ReportService.getNutritionSeries(userId, date);
+      const nutrition_series = await ReportService.getNutritionSeries(
+        userId,
+        startDate,
+        endDate
+      );
 
       return {
-          date,
+          date: endDate,
+          filter: {
+            mode: resolved.mode,
+            type: resolved.filter,
+            from_date: startDate,
+            to_date: endDate,
+            presets_supported: ["24h", "1d", "3d", "5d", "7d", "1m", "custom"],
+          },
           nutrition: progress,
           nutrition_series,
           streak: generalStreak.current_streak_days ?? 0,
-          target_met_percent: Math.min(100, targetMetPercent)
+          target_met_percent: Math.min(100, targetMetPercent),
+          cards: {
+            workout: {
+              label: "Workout",
+              date: endDate,
+              completed: Boolean(latestCompletedWorkout),
+              title: latestCompletedWorkout ? "Completed!" : "Not completed",
+              subtitle: latestCompletedWorkout?.workout_name || null,
+              session_id: latestCompletedWorkout?.id || null,
+              completed_at: latestCompletedWorkout?.end_time || null,
+            },
+            coins: {
+              label: "Today's coins",
+              date: endDate,
+              coins_earned: coinsEarnedOnDate,
+              display_amount: `+${coinsEarnedOnDate}`,
+              streak_days: generalStreak.current_streak_days ?? 0,
+            },
+          },
       };
     } catch (error) {
       logger.error(`Error generating daily report: ${error.message}`);

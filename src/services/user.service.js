@@ -10,7 +10,15 @@ class UserService {
   static MILESTONE_STEP_KG = 5;
 
   static sanitizeUser(user = {}) {
-    const { password, confirm_password, otp, otp_expires_at, ...safe } = user;
+    const {
+      password,
+      confirm_password,
+      otp,
+      otp_expires_at,
+      otp_purpose,
+      password_reset_verified_at,
+      ...safe
+    } = user;
     return safe;
   }
 
@@ -490,16 +498,18 @@ class UserService {
   }
 
   /**
-   * Set OTP for a user (used for registration/resend)
+   * Set OTP for a user (registration, resend, or forgot-password)
    * @param {number} userId
    * @param {string} otp
    * @param {Date|string} expiresAt
+   * @param {'registration'|'password_reset'} [otpPurpose]
    */
-  static async setOtp(userId, otp, expiresAt) {
+  static async setOtp(userId, otp, expiresAt, otpPurpose = "registration") {
     try {
       const result = await db.query(
-        "UPDATE users SET otp = $1, otp_expires_at = $2, updated_at = NOW() WHERE id = $3 RETURNING *",
-        [otp, expiresAt, userId]
+        `UPDATE users SET otp = $1, otp_expires_at = $2, otp_purpose = $3,
+         password_reset_verified_at = NULL, updated_at = NOW() WHERE id = $4 RETURNING *`,
+        [otp, expiresAt, otpPurpose, userId]
       );
 
       return result.rows[0] || null;
@@ -510,19 +520,32 @@ class UserService {
   }
 
   /**
-   * Mark user as verified and clear OTP
+   * After successful OTP check: verify account, clear OTP.
+   * If forPasswordReset, allow the next change-password (email + newPassword) within the reset window.
    * @param {number} userId
+   * @param {boolean} forPasswordReset
    */
-  static async verify(userId) {
+  static async verifyAfterOtp(userId, forPasswordReset) {
     try {
+      // Two statements: CASE WHEN $n::boolean can mis-bind with node-pg and skip setting NOW().
+      const resetAtSql = forPasswordReset
+        ? "password_reset_verified_at = NOW()"
+        : "password_reset_verified_at = NULL";
       const result = await db.query(
-        "UPDATE users SET is_verified = true, otp = NULL, otp_expires_at = NULL, updated_at = NOW() WHERE id = $1 RETURNING *",
+        `UPDATE users SET
+          is_verified = true,
+          otp = NULL,
+          otp_expires_at = NULL,
+          otp_purpose = NULL,
+          ${resetAtSql},
+          updated_at = NOW()
+         WHERE id = $1 RETURNING *`,
         [userId]
       );
 
       return result.rows[0] || null;
     } catch (error) {
-      logger.error(`Error verifying user: ${error.message}`);
+      logger.error(`Error verifying user after OTP: ${error.message}`);
       throw error;
     }
   }
@@ -535,7 +558,9 @@ class UserService {
   static async updatePassword(id, hashedPassword) {
     try {
       const result = await db.query(
-        "UPDATE users SET password = $1, otp = NULL, otp_expires_at = NULL, updated_at = NOW() WHERE id = $2 RETURNING *",
+        `UPDATE users SET password = $1, otp = NULL, otp_expires_at = NULL,
+         otp_purpose = NULL, password_reset_verified_at = NULL, updated_at = NOW()
+         WHERE id = $2 RETURNING *`,
         [hashedPassword, id]
       );
 

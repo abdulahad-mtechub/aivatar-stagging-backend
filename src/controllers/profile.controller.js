@@ -147,8 +147,15 @@ exports.updateProfile = asyncHandler(async (req, res, next) => {
         }
     }
 
-    // Fetch existing record to verify ownership
-    const existing = await ProfileService.findById(idInt);
+    // Backward compatibility:
+    // - Admin: :id is treated as profile id
+    // - User: if :id equals their user id, treat it as user id and update own profile
+    let existing = null;
+    if (req.user.role !== "admin" && idInt === Number(req.user.id)) {
+        existing = await ProfileService.findByUserId(req.user.id);
+    } else {
+        existing = await ProfileService.findById(idInt);
+    }
 
     if (!existing) {
         return next(new AppError("Resource not found", 404));
@@ -158,7 +165,55 @@ exports.updateProfile = asyncHandler(async (req, res, next) => {
         return next(new AppError("You do not have permission to perform this action", 403));
     }
 
-    const updatedProfile = await ProfileService.update(idInt, {
+    const updatedProfile = await ProfileService.update(existing.id, {
+        profile_image,
+        address,
+        reminder,
+        plan_key,
+        goal_id,
+        mentor_gender,
+        gender,
+        qa_list: parsedQaList,
+        job_type,
+    });
+
+    if (!updatedProfile) {
+        return next(new AppError("No fields to update", 400));
+    }
+
+    return apiResponse(res, 200, "Resource updated successfully", {
+        profile: stripReminderField(updatedProfile),
+    });
+});
+
+/**
+ * Update current authenticated user's profile.
+ *
+ * PUT /api/profiles/me
+ */
+exports.updateMyProfile = asyncHandler(async (req, res, next) => {
+    const userId = req.user.id;
+    const { profile_image, address, reminder, plan_key, goal_id, mentor_gender, gender, qa_list, job_type } = req.body;
+
+    let parsedQaList = undefined;
+    if (qa_list !== undefined) {
+        if (typeof qa_list === "string") {
+            try {
+                parsedQaList = JSON.parse(qa_list);
+            } catch (err) {
+                return next(new AppError("Invalid qa_list JSON", 400));
+            }
+        } else {
+            parsedQaList = qa_list;
+        }
+    }
+
+    const existing = await ProfileService.findByUserId(userId);
+    if (!existing) {
+        return next(new AppError("Resource not found", 404));
+    }
+
+    const updatedProfile = await ProfileService.update(existing.id, {
         profile_image,
         address,
         reminder,

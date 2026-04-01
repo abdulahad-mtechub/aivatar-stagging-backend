@@ -19,8 +19,14 @@ CREATE TABLE IF NOT EXISTS users (
   is_verified BOOLEAN DEFAULT false,
   otp VARCHAR(10),
   otp_expires_at TIMESTAMP,
+  otp_purpose VARCHAR(32),
+  password_reset_verified_at TIMESTAMP,
   fcm_token VARCHAR(255)
 );
+
+-- Backward-compatible columns for existing databases (password reset flow: verify-otp then change-password)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS otp_purpose VARCHAR(32);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_verified_at TIMESTAMP;
 
 -- Create indexes for users table
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
@@ -180,6 +186,25 @@ CREATE TABLE IF NOT EXISTS meal_plans (
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_meal_plans_user_id ON meal_plans(user_id);
 CREATE INDEX IF NOT EXISTS idx_meal_plans_week_day ON meal_plans(user_id, week_number, day_of_week);
+
+-- Backward-compatible cleanup: remove duplicate meal slots before unique index creation.
+-- Keep the newest row (created_at desc, id desc) per (user_id, week_number, day_of_week, slot_type).
+WITH ranked_meal_plans AS (
+  SELECT
+    id,
+    ROW_NUMBER() OVER (
+      PARTITION BY user_id, week_number, day_of_week, LOWER(TRIM(slot_type))
+      ORDER BY created_at DESC, id DESC
+    ) AS rn
+  FROM meal_plans
+)
+DELETE FROM meal_plans
+WHERE id IN (
+  SELECT id
+  FROM ranked_meal_plans
+  WHERE rn > 1
+);
+
 CREATE UNIQUE INDEX IF NOT EXISTS uq_meal_plans_user_week_day_slot
   ON meal_plans(user_id, week_number, day_of_week, LOWER(TRIM(slot_type)));
 

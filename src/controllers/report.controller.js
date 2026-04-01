@@ -8,8 +8,7 @@ const AppError = require("../utils/appError");
  */
 exports.getDailyReport = asyncHandler(async (req, res, next) => {
   const userId = req.user.id;
-  const { date } = req.query;
-  const report = await ReportService.getDailyReport(userId, date);
+  const report = await ReportService.getDailyReport(userId, req.query);
   
   return apiResponse(res, 200, "Daily report retrieved", report);
 });
