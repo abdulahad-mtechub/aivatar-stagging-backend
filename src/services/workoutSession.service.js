@@ -1,5 +1,6 @@
 const db = require("../config/database");
 const logger = require("../utils/logger");
+const AppError = require("../utils/appError");
 
 class WorkoutSessionService {
   static _sessionSchemaEnsured = false;
@@ -51,17 +52,86 @@ class WorkoutSessionService {
   /**
    * Log a set for an exercise in a session
    */
-  static async logSet(sessionId, exerciseId, setData) {
+  static async logSet(userId, sessionId, exerciseId, setData) {
     await WorkoutSessionService.ensureSessionSchema();
     const { set_number, reps, weight, reps_target, weight_target, rest_time } = setData;
     try {
-      const result = await db.query(
-        `INSERT INTO workout_sets (session_id, exercise_id, set_number, actual_reps, actual_weight, target_reps, target_weight, rest_time_seconds, is_completed) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true) 
-         RETURNING *`,
-        [sessionId, exerciseId, set_number, reps, weight, reps_target, weight_target, rest_time]
+      const sessionRes = await db.query(
+        `SELECT id, user_id, workout_id, status
+         FROM user_workout_sessions
+         WHERE id = $1`,
+        [sessionId]
       );
-      return result.rows[0];
+      const session = sessionRes.rows[0];
+      if (!session || Number(session.user_id) !== Number(userId)) {
+        throw new AppError("Session not found", 404);
+      }
+      if (String(session.status || "").toLowerCase() === "completed") {
+        throw new AppError("Session already completed", 400);
+      }
+
+      const mapRes = await db.query(
+        `SELECT 1
+         FROM workout_exercises
+         WHERE workout_id = $1 AND exercise_id = $2
+         LIMIT 1`,
+        [session.workout_id, exerciseId]
+      );
+      if (!mapRes.rows[0]) {
+        throw new AppError("Exercise does not belong to this workout session", 400);
+      }
+
+      const existingRes = await db.query(
+        `SELECT id
+         FROM workout_sets
+         WHERE session_id = $1 AND exercise_id = $2 AND set_number = $3
+         LIMIT 1`,
+        [sessionId, exerciseId, set_number]
+      );
+
+      let loggedRow = null;
+      if (existingRes.rows[0]) {
+        const updateRes = await db.query(
+          `UPDATE workout_sets
+           SET actual_reps = COALESCE($1, actual_reps),
+               actual_weight = COALESCE($2, actual_weight),
+               target_reps = COALESCE($3, target_reps),
+               target_weight = COALESCE($4, target_weight),
+               rest_time_seconds = COALESCE($5, rest_time_seconds),
+               is_completed = true
+           WHERE id = $6
+           RETURNING *`,
+          [reps, weight, reps_target, weight_target, rest_time, existingRes.rows[0].id]
+        );
+        loggedRow = updateRes.rows[0];
+      } else {
+        const insertRes = await db.query(
+          `INSERT INTO workout_sets (session_id, exercise_id, set_number, actual_reps, actual_weight, target_reps, target_weight, rest_time_seconds, is_completed)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true)
+           RETURNING *`,
+          [sessionId, exerciseId, set_number, reps, weight, reps_target, weight_target, rest_time]
+        );
+        loggedRow = insertRes.rows[0];
+      }
+
+      const totalsRes = await db.query(
+        `SELECT
+           COUNT(*)::int AS completed_sets,
+           COUNT(DISTINCT exercise_id)::int AS completed_exercises
+         FROM workout_sets
+         WHERE session_id = $1
+           AND is_completed = true`,
+        [sessionId]
+      );
+
+      return {
+        log: loggedRow,
+        progress: {
+          session_id: Number(sessionId),
+          completed_sets: Number(totalsRes.rows[0]?.completed_sets || 0),
+          completed_exercises: Number(totalsRes.rows[0]?.completed_exercises || 0),
+        },
+      };
     } catch (error) {
       logger.error(`Error logging workout set: ${error.message}`);
       throw error;

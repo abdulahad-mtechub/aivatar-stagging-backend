@@ -130,12 +130,13 @@ class WorkoutController {
    */
   static logSet = asyncHandler(async (req, res) => {
     const { session_id, exercise_id, set_number, reps, weight, reps_target, weight_target, rest_time } = req.body;
+    const userId = req.user.id;
 
     if (!session_id || !exercise_id || !set_number) {
       return errorResponse(res, "Missing required log data", 400);
     }
 
-    const log = await WorkoutSessionService.logSet(session_id, exercise_id, {
+    const log = await WorkoutSessionService.logSet(userId, session_id, exercise_id, {
       set_number,
       reps,
       weight,
@@ -147,7 +148,7 @@ class WorkoutController {
     return successResponse(res, {
       message: "Set logged successfully",
       data: log,
-    }, 201);
+    });
   });
 
   /**

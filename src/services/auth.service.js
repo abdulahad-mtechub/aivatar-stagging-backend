@@ -176,7 +176,12 @@ class AuthService {
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
       // Set OTP on user and get the updated user row
-      const updatedUser = await UserService.setOtp(newUser.id, otp, expiresAt);
+      const updatedUser = await UserService.setOtp(
+        newUser.id,
+        otp,
+        expiresAt,
+        "registration"
+      );
 
       // Send OTP (stubbed) and capture result
       const sendResult = await sendOtp({ to: newUser.email, otp });
@@ -205,8 +210,9 @@ class AuthService {
   /**
    * Resend OTP to given email
    * @param {string} email
+   * @param {string} [purpose] - use "password_reset" after forgot-password so verify-otp opens reset session
    */
-  static async resendOtp(email) {
+  static async resendOtp(email, purpose = "registration") {
     try {
       const user = await UserService.findByEmail(email);
 
@@ -217,7 +223,12 @@ class AuthService {
       const otp = generateOtp(4);
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-      await UserService.setOtp(user.id, otp, expiresAt);
+      const otpPurpose =
+        String(purpose || "registration").trim().toLowerCase() === "password_reset"
+          ? "password_reset"
+          : "registration";
+
+      await UserService.setOtp(user.id, otp, expiresAt, otpPurpose);
       const sendResult = await sendOtp({ to: user.email, otp });
 
       return {
@@ -259,10 +270,15 @@ class AuthService {
         throw new Error("Invalid OTP");
       }
 
-      // Mark user as verified and clear otp
-      await UserService.verify(user.id);
+      const purpose = String(user.otp_purpose || "").trim().toLowerCase();
+      const forPasswordReset = purpose === "password_reset";
 
-      return { success: true };
+      await UserService.verifyAfterOtp(user.id, forPasswordReset);
+
+      return {
+        success: true,
+        ...(forPasswordReset ? { password_reset_session: true } : {}),
+      };
     } catch (error) {
       logger.error(`Verify OTP error: ${error.message}`);
       throw error;
@@ -345,7 +361,7 @@ class AuthService {
       const otp = generateOtp(4);
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-      await UserService.setOtp(user.id, otp, expiresAt);
+      await UserService.setOtp(user.id, otp, expiresAt, "password_reset");
       const sendResult = await sendOtp({ to: user.email, otp });
 
       return {
@@ -359,13 +375,19 @@ class AuthService {
     }
   }
 
+  static getPasswordResetSessionMinutes() {
+    const mins = Number(process.env.PASSWORD_RESET_SESSION_MINUTES);
+    return Number.isFinite(mins) && mins > 0 ? mins : 60;
+  }
+
   /**
-   * Reset password using email + otp
+   * Set new password after forgot-password OTP was verified via verify-otp.
+   * Expiry is enforced in SQL with NOW() so it matches the DB clock and avoids
+   * node-pg / JS Date mis-parsing timestamp without time zone.
    * @param {string} email
-   * @param {string} otp
    * @param {string} newPassword
    */
-  static async resetPassword(email, otp, newPassword) {
+  static async resetPasswordWithVerifiedOtp(email, newPassword) {
     try {
       const user = await UserService.findByEmail(email);
 
@@ -373,28 +395,34 @@ class AuthService {
         throw new Error("User not found");
       }
 
-      if (!user.otp || !user.otp_expires_at) {
-        throw new Error("No OTP found for this user");
-      }
-
-      const now = new Date();
-      const expiresAt = new Date(user.otp_expires_at);
-
-      if (now > expiresAt) {
-        throw new Error("OTP has expired");
-      }
-
-      if (String(user.otp) !== String(otp)) {
-        throw new Error("Invalid OTP");
-      }
-
-      // Hash new password and update
+      const sessionMins = this.getPasswordResetSessionMinutes();
       const hashedPassword = await bcrypt.hash(newPassword, 12);
-      await UserService.updatePassword(user.id, hashedPassword);
+
+      const result = await db.query(
+        `UPDATE users SET password = $1, otp = NULL, otp_expires_at = NULL,
+         otp_purpose = NULL, password_reset_verified_at = NULL, updated_at = NOW()
+         WHERE id = $2
+         AND deleted_at IS NULL
+         AND password_reset_verified_at IS NOT NULL
+         AND password_reset_verified_at > NOW() - ($3::integer * INTERVAL '1 minute')
+         RETURNING id`,
+        [hashedPassword, user.id, sessionMins]
+      );
+
+      if (result.rowCount === 0) {
+        if (!user.password_reset_verified_at) {
+          throw new Error(
+            'Please verify the OTP first. After forgot-password, if you call resend-otp, send "purpose": "password_reset" in the body.'
+          );
+        }
+        throw new Error(
+          "Password reset session has expired. Please request a new code and verify the OTP again."
+        );
+      }
 
       return { success: true };
     } catch (error) {
-      logger.error(`Reset password error: ${error.message}`);
+      logger.error(`Reset password (post-OTP) error: ${error.message}`);
       throw error;
     }
   }

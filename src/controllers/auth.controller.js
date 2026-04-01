@@ -99,12 +99,12 @@ exports.register = asyncHandler(async (req, res, next) => {
  * Resend OTP to user email
  */
 exports.resendOtp = asyncHandler(async (req, res, next) => {
-  const { email } = req.body;
+  const { email, purpose } = req.body;
 
   if (!email) return next(new AppError("Please provide email", 400));
 
   try {
-    const result = await AuthService.resendOtp(email);
+    const result = await AuthService.resendOtp(email, purpose);
 
     return apiResponse(res, 200, "OTP resent successfully", result);
   } catch (error) {
@@ -147,16 +147,17 @@ exports.forgotPassword = asyncHandler(async (req, res, next) => {
 });
 
 /**
- * Reset password using OTP
+ * Reset password after OTP was verified via POST /verify-otp (same as change-password with email).
  */
 exports.resetPassword = asyncHandler(async (req, res, next) => {
-  const { email, otp, newPassword } = req.body;
+  const { email, newPassword } = req.body || {};
 
-  if (!email || !otp || !newPassword)
-    return next(new AppError("Please provide email, otp and newPassword", 400));
+  if (!email || !newPassword) {
+    return next(new AppError("Please provide email and newPassword", 400));
+  }
 
   try {
-    const result = await AuthService.resetPassword(email, otp, newPassword);
+    const result = await AuthService.resetPasswordWithVerifiedOtp(email, newPassword);
 
     return apiResponse(res, 200, "Password reset successfully", result);
   } catch (error) {
@@ -192,11 +193,32 @@ exports.getProfile = asyncHandler(async (req, res, next) => {
 });
 
 /**
- * Change user password
+ * Change password: logged-in users send currentPassword + newPassword (Bearer).
+ * Forgot-password flow: after verify-otp, send email + newPassword (no auth).
  */
 exports.changePassword = asyncHandler(async (req, res, next) => {
-  const userId = req.user.id;
-  const { currentPassword, newPassword } = req.body;
+  const { email, newPassword, currentPassword } = req.body || {};
+
+  if (email && newPassword) {
+    if (currentPassword) {
+      return next(
+        new AppError(
+          "For post-OTP reset use only email and newPassword; when logged in omit email and send currentPassword and newPassword.",
+          400
+        )
+      );
+    }
+    try {
+      await AuthService.resetPasswordWithVerifiedOtp(email, newPassword);
+      return apiResponse(res, 200, "Password changed successfully");
+    } catch (error) {
+      return next(new AppError(error.message, 400));
+    }
+  }
+
+  if (!req.user?.id) {
+    return next(new AppError("You are not logged in. Please log in to access.", 401));
+  }
 
   if (!currentPassword || !newPassword) {
     return next(
@@ -205,7 +227,7 @@ exports.changePassword = asyncHandler(async (req, res, next) => {
   }
 
   try {
-    await AuthService.changePassword(userId, currentPassword, newPassword);
+    await AuthService.changePassword(req.user.id, currentPassword, newPassword);
 
     return apiResponse(res, 200, "Password changed successfully");
   } catch (error) {
