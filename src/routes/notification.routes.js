@@ -4,6 +4,9 @@ const notificationController = require("../controllers/notification.controller")
 const { protect } = require("../middlewares/auth.middleware");
 const authMiddleware = protect;
 
+// Public route to get static templates
+router.get("/templates", notificationController.getTemplates);
+
 // Public: broadcast in-app + push to all active app users
 router.post("/broadcast-active", notificationController.broadcastToActiveUsers);
 

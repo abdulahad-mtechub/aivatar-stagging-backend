@@ -1,0 +1,25 @@
+{
+  "version": "5",
+  "redirects": {
+    "https://deno.land/x/deno_cron/mod.ts": "https://deno.land/x/deno_cron@v1.0.0/mod.ts"
+  },
+  "workspace": {
+    "packageJson": {
+      "dependencies": [
+        "npm:bcryptjs@^2.4.3",
+        "npm:body-parser@^1.20.2",
+        "npm:cors@^2.8.5",
+        "npm:dotenv@^16.5.0",
+        "npm:express-rate-limit@^7.1.5",
+        "npm:express@^4.21.2",
+        "npm:firebase-admin@^13.7.0",
+        "npm:helmet@^7.1.0",
+        "npm:jsonwebtoken@^9.0.2",
+        "npm:node-cron@^4.2.1",
+        "npm:nodemailer@^6.9.3",
+        "npm:nodemon@^3.1.11",
+        "npm:pg@^8.11.3"
+      ]
+    }
+  }
+}

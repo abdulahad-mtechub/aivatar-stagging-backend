@@ -20,20 +20,38 @@ class RewardService {
 
   static async getAllRules(options = {}) {
     const { page = 1, limit = 10 } = options;
+    const reward_type = options.reward_type || options.rewardtype;
     const offset = (page - 1) * limit;
     try {
-      const countRes = await db.query("SELECT COUNT(*) FROM reward_management");
-      const result = await db.query(
-        "SELECT * FROM reward_management ORDER BY created_at DESC LIMIT $1 OFFSET $2",
-        [limit, offset]
-      );
+      let query = "SELECT * FROM reward_management";
+      let countQuery = "SELECT COUNT(*) FROM reward_management";
+      const params = [];
+      const where = [];
+
+      if (reward_type) {
+        params.push(reward_type);
+        where.push(`reward_type = $${params.length}`);
+      }
+
+      if (where.length > 0) {
+        query += ` WHERE ${where.join(" AND ")}`;
+        countQuery += ` WHERE ${where.join(" AND ")}`;
+      }
+
+      const countParams = [...params];
+      query += ` ORDER BY created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+      params.push(limit, offset);
+
+      const countRes = await db.query(countQuery, countParams);
+      const result = await db.query(query, params);
+
       return {
         rules: result.rows,
         pagination: {
           page: parseInt(page, 10),
           limit: parseInt(limit, 10),
           total: parseInt(countRes.rows[0].count, 10),
-          pages: Math.ceil(countRes.rows[0].count / limit),
+          pages: Math.ceil(parseInt(countRes.rows[0].count, 10) / limit),
         },
       };
     } catch (error) {
