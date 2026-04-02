@@ -42,6 +42,7 @@ class ExerciseService {
       title: "title",
       category: "category",
       difficulty: "difficulty",
+      is_premium: "is_premium",
       duration_seconds: "duration_seconds",
       created_at: "created_at",
     };
@@ -115,6 +116,7 @@ class ExerciseService {
       target_muscle_group,
       duration_seconds,
       difficulty,
+      is_premium,
       default_rest_time_seconds,
     } = exerciseData;
 
@@ -131,9 +133,10 @@ class ExerciseService {
            target_muscle_group,
            duration_seconds,
            difficulty,
+           is_premium,
            default_rest_time_seconds
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
          RETURNING *`,
         [
           title,
@@ -146,6 +149,7 @@ class ExerciseService {
           target_muscle_group,
           duration_seconds,
           difficulty,
+          parseBoolean(is_premium, false),
           default_rest_time_seconds,
         ]
       );
@@ -171,6 +175,7 @@ class ExerciseService {
       target_muscle_group,
       duration_seconds,
       difficulty,
+      is_premium,
       default_rest_time_seconds,
     } = exerciseData;
 
@@ -188,9 +193,10 @@ class ExerciseService {
            target_muscle_group = COALESCE($8, target_muscle_group),
            duration_seconds = COALESCE($9, duration_seconds),
            difficulty = COALESCE($10, difficulty),
-           default_rest_time_seconds = COALESCE($11, default_rest_time_seconds),
+           is_premium = COALESCE($11, is_premium),
+           default_rest_time_seconds = COALESCE($12, default_rest_time_seconds),
            updated_at = NOW()
-         WHERE id = $12 AND deleted_at IS NULL
+         WHERE id = $13 AND deleted_at IS NULL
          RETURNING *`,
         [
           title ?? null,
@@ -203,6 +209,7 @@ class ExerciseService {
           target_muscle_group ?? null,
           duration_seconds ?? null,
           difficulty ?? null,
+          is_premium !== undefined ? parseBoolean(is_premium, false) : null,
           default_rest_time_seconds ?? null,
           id,
         ]

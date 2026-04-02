@@ -245,6 +245,7 @@ CREATE TABLE IF NOT EXISTS exercises (
   target_muscle_group VARCHAR(100),
   duration_seconds INTEGER,
   difficulty VARCHAR(50),
+  is_premium BOOLEAN DEFAULT false,
   default_rest_time_seconds INTEGER,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
@@ -254,6 +255,7 @@ CREATE TABLE IF NOT EXISTS exercises (
 -- Backward-compatible cleanup for existing DBs
 ALTER TABLE exercises DROP COLUMN IF EXISTS media_url;
 ALTER TABLE exercises DROP COLUMN IF EXISTS equipment;
+ALTER TABLE exercises ADD COLUMN IF NOT EXISTS is_premium BOOLEAN DEFAULT false;
 
 -- 2. Workout Templates
 CREATE TABLE IF NOT EXISTS workouts (
@@ -353,6 +355,7 @@ CREATE TABLE IF NOT EXISTS workout_sets (
 
 -- Create indexes for workout tables
 CREATE INDEX IF NOT EXISTS idx_exercises_category ON exercises(category);
+CREATE INDEX IF NOT EXISTS idx_exercises_is_premium ON exercises(is_premium);
 CREATE INDEX IF NOT EXISTS idx_workout_exercises_workout_id ON workout_exercises(workout_id);
 CREATE INDEX IF NOT EXISTS idx_user_workout_sessions_user_id ON user_workout_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_workout_sets_session_id ON workout_sets(session_id);
