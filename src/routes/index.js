@@ -51,7 +51,7 @@ router.use("/stripe", stripeRoutes);
 router.use("/activity", activityRoutes);
 router.use("/analytics", analyticsRoutes);
 router.use("/goals", goalRoutes);
-router.use("/demo-videos", protect, demoVideoRoutes);
+router.use("/demo-videos", demoVideoRoutes);
 router.use("/admin/demo-videos", adminDemoVideoRoutes);
 
 module.exports = router;
