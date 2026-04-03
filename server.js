@@ -15,6 +15,10 @@ server.listen(port, () => {
   logger.info(`🌍 Environment: ${process.env.NODE_ENV || "development"}`);
   logger.info(`📅 Started at: ${new Date().toISOString()}`);
   logger.info(`📖 API Documentation: http://localhost:${port}/api`);
+  
+  // Initialize Background CRON Jobs
+  const CronService = require('./src/services/cron.service');
+  CronService.init();
 });
 
 // Handle server errors

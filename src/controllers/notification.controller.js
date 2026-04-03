@@ -1,7 +1,16 @@
 const NotificationService = require("../services/notification.service");
+const { NOTIFICATION_TEMPLATES } = require("../constants/notification.constants");
 const asyncHandler = require("../utils/asyncHandler");
 const { apiResponse } = require("../utils/apiResponse");
 const AppError = require("../utils/appError");
+
+/**
+ * GET /api/notifications/templates
+ * Public route to get default notification text templates
+ */
+exports.getTemplates = asyncHandler(async (req, res) => {
+  return apiResponse(res, 200, "Notification templates retrieved successfully", { templates: NOTIFICATION_TEMPLATES });
+});
 
 /**
  * PATCH /api/notifications/update-token

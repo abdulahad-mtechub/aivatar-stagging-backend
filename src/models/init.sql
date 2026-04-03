@@ -245,6 +245,7 @@ CREATE TABLE IF NOT EXISTS exercises (
   target_muscle_group VARCHAR(100),
   duration_seconds INTEGER,
   difficulty VARCHAR(50),
+  is_premium BOOLEAN DEFAULT false,
   default_rest_time_seconds INTEGER,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
@@ -254,6 +255,7 @@ CREATE TABLE IF NOT EXISTS exercises (
 -- Backward-compatible cleanup for existing DBs
 ALTER TABLE exercises DROP COLUMN IF EXISTS media_url;
 ALTER TABLE exercises DROP COLUMN IF EXISTS equipment;
+ALTER TABLE exercises ADD COLUMN IF NOT EXISTS is_premium BOOLEAN DEFAULT false;
 
 -- 2. Workout Templates
 CREATE TABLE IF NOT EXISTS workouts (
@@ -353,6 +355,7 @@ CREATE TABLE IF NOT EXISTS workout_sets (
 
 -- Create indexes for workout tables
 CREATE INDEX IF NOT EXISTS idx_exercises_category ON exercises(category);
+CREATE INDEX IF NOT EXISTS idx_exercises_is_premium ON exercises(is_premium);
 CREATE INDEX IF NOT EXISTS idx_workout_exercises_workout_id ON workout_exercises(workout_id);
 CREATE INDEX IF NOT EXISTS idx_user_workout_sessions_user_id ON user_workout_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_workout_sets_session_id ON workout_sets(session_id);
@@ -368,33 +371,20 @@ CREATE INDEX IF NOT EXISTS idx_workouts_user_id_plan_date ON workouts(user_id, p
 
 CREATE TABLE IF NOT EXISTS reminder_settings (
   id SERIAL PRIMARY KEY,
-  user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  reminder_type VARCHAR(50) NOT NULL,
+  reminder_time TIME NOT NULL,
+  day_of_week INTEGER CHECK (day_of_week BETWEEN 1 AND 7),
+  is_enabled BOOLEAN DEFAULT true,
   do_not_disturb_enabled BOOLEAN DEFAULT false,
-  dnd_start_time TIME,
-  dnd_end_time TIME,
-
-  morning_briefing_enabled BOOLEAN DEFAULT true,
-  morning_briefing_time TIME DEFAULT '07:00',
-
-  workout_reminder_enabled BOOLEAN DEFAULT true,
-  workout_reminder_time TIME DEFAULT '18:00',
-
-  meal_reminders_enabled BOOLEAN DEFAULT true,
-  meal_reminder_times JSONB DEFAULT '["08:00","13:00","20:00"]'::jsonb,
-
-  weekly_weigh_in_enabled BOOLEAN DEFAULT false,
-  weekly_weigh_in_day_of_week INTEGER CHECK (weekly_weigh_in_day_of_week BETWEEN 1 AND 7),
-  weekly_weigh_in_time TIME DEFAULT '07:00',
-
-  daily_motivation_enabled BOOLEAN DEFAULT true,
-  daily_motivation_time TIME DEFAULT '09:00',
-
+  timezone VARCHAR(100),
+  metadata JSONB DEFAULT '{}'::jsonb,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_reminder_settings_user_id ON reminder_settings(user_id);
+-- Indexes for reminder tables
+CREATE INDEX IF NOT EXISTS idx_reminder_settings_user_type ON reminder_settings(user_id, reminder_type);
 
 CREATE TABLE IF NOT EXISTS notifications (
   id SERIAL PRIMARY KEY,
@@ -545,7 +535,7 @@ CREATE INDEX IF NOT EXISTS idx_activity_log_action_type ON activity_log(action_t
 CREATE INDEX IF NOT EXISTS idx_activity_log_created_at ON activity_log(created_at);
 
 -- ==========================================
--- Demo videos (admin: all; users: active only)
+-- Demo videos (admin: all, users: active only)
 -- ==========================================
 
 CREATE TABLE IF NOT EXISTS demo_videos (
