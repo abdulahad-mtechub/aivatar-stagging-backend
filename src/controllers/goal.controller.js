@@ -120,3 +120,18 @@ exports.deleteGoal = asyncHandler(async (req, res, next) => {
   }
   return apiResponse(res, 200, "Goal deleted successfully");
 });
+
+// Admin: get a user's selected goal by userId
+exports.getGoalByUserId = asyncHandler(async (req, res, next) => {
+  const userId = Number(req.params.userId);
+  if (!Number.isInteger(userId) || userId <= 0) {
+    return next(new AppError("Invalid user id", 400));
+  }
+
+  const result = await GoalService.getByUserId(userId);
+  if (!result) {
+    return next(new AppError("No goal found for this user", 404));
+  }
+  return apiResponse(res, 200, "User goal fetched successfully", result);
+});
+

@@ -64,6 +64,18 @@ exports.list = asyncHandler(async (req, res) => {
 });
 
 /**
+ * GET /api/notifications/admin/sent?limit=50&offset=0
+ * Admin route to get list of distinct custom notifications they have sent
+ */
+exports.listSentByAdmin = asyncHandler(async (req, res) => {
+  const data = await NotificationService.getSentByAdmin({
+    limit: req.query.limit || 50,
+    offset: req.query.offset || 0,
+  });
+  return apiResponse(res, 200, "Sent notifications retrieved successfully", { sent_notifications: data });
+});
+
+/**
  * PATCH /api/notifications/:id/read
  * Mark a notification as read
  */

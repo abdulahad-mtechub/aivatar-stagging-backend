@@ -81,6 +81,109 @@ class AnalyticsService {
       throw error;
     }
   }
+
+  static async getAdminKPIs() {
+    try {
+      const now = new Date();
+      const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const twoMonthsAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+
+      const query = `
+        WITH current_stats AS (
+          SELECT
+            (SELECT COUNT(*)::float FROM users WHERE role = 'user' AND deleted_at IS NULL) AS total_users,
+            (SELECT COUNT(*)::float FROM users WHERE role = 'user' AND deleted_at IS NULL AND is_verified = true) AS active_users,
+            (SELECT COUNT(DISTINCT t.user_id)::float 
+               FROM stripe_subscriptions s 
+               JOIN stripe_transactions t ON s.transaction_id = t.id 
+               WHERE s.status IN ('active', 'trialing')) AS paid_users,
+            (SELECT COALESCE(SUM(amount_total), 0)::float / 100.0 FROM stripe_transactions WHERE status = 'succeeded') AS total_revenue,
+            (SELECT COALESCE(SUM(amount_total), 0)::float / 100.0 FROM stripe_transactions t
+               JOIN stripe_subscriptions s ON s.transaction_id = t.id
+               WHERE s.status IN ('active', 'trialing') AND s.created_at >= $1) AS monthly_recurring_revenue,
+            (SELECT COUNT(*)::float FROM stripe_subscriptions WHERE status = 'canceled' AND updated_at >= $1) AS churn_count,
+            (SELECT COUNT(*)::float FROM stripe_subscriptions WHERE status IN ('active', 'trialing')) AS active_subs_count
+        ),
+        prev_stats AS (
+          SELECT
+            (SELECT COUNT(*)::float FROM users WHERE role = 'user' AND created_at < $1 AND deleted_at IS NULL) AS total_users,
+            (SELECT COUNT(*)::float FROM users WHERE role = 'user' AND created_at < $1 AND deleted_at IS NULL AND is_verified = true) AS active_users,
+            (SELECT COUNT(DISTINCT t.user_id)::float 
+               FROM stripe_subscriptions s 
+               JOIN stripe_transactions t ON s.transaction_id = t.id 
+               WHERE s.status IN ('active', 'trialing') AND s.created_at < $1) AS paid_users,
+            (SELECT COALESCE(SUM(amount_total), 0)::float / 100.0 FROM stripe_transactions WHERE status = 'succeeded' AND created_at < $1) AS total_revenue,
+            (SELECT COALESCE(SUM(amount_total), 0)::float / 100.0 FROM stripe_transactions t
+               JOIN stripe_subscriptions s ON s.transaction_id = t.id
+               WHERE s.status IN ('active', 'trialing') AND s.created_at >= $2 AND s.created_at < $1) AS monthly_recurring_revenue,
+            (SELECT COUNT(*)::float FROM stripe_subscriptions WHERE status = 'canceled' AND updated_at >= $2 AND updated_at < $1) AS churn_count,
+            (SELECT COUNT(*)::float FROM stripe_subscriptions WHERE (status IN ('active', 'trialing') OR (status = 'canceled' AND updated_at >= $1)) AND created_at < $1) AS active_subs_count_at_start
+        )
+        SELECT 
+          c.*,
+          p.total_users AS prev_total_users,
+          p.active_users AS prev_active_users,
+          p.paid_users AS prev_paid_users,
+          p.total_revenue AS prev_total_revenue,
+          p.monthly_recurring_revenue AS prev_mrr,
+          p.churn_count AS prev_churn_count,
+          p.active_subs_count_at_start
+        FROM current_stats c, prev_stats p;
+      `;
+
+      const res = await db.query(query, [monthAgo, twoMonthsAgo]);
+      const row = res.rows[0];
+
+      const calcTrend = (curr, prev) => {
+        if (!prev || prev === 0) return { percentage: 0, direction: "up" };
+        const percentage = ((curr - prev) / prev) * 100;
+        return {
+          percentage: parseFloat(percentage.toFixed(2)),
+          direction: percentage >= 0 ? "up" : "down"
+        };
+      };
+
+      const churnRate = row.active_subs_count_at_start > 0 
+        ? (row.churn_count / row.active_subs_count_at_start) * 100 
+        : 0;
+      const prevChurnRate = (row.active_subs_count_at_start + row.prev_churn_count) > 0
+        ? (row.prev_churn_count / (row.active_subs_count_at_start + row.prev_churn_count)) * 100
+        : 0;
+
+      return {
+        kpis: {
+          totalUsers: {
+            value: parseInt(row.total_users),
+            ...calcTrend(row.total_users, row.prev_total_users)
+          },
+          activeUsers: {
+            value: parseInt(row.active_users),
+            ...calcTrend(row.active_users, row.prev_active_users)
+          },
+          paidUsers: {
+            value: parseInt(row.paid_users),
+            ...calcTrend(row.paid_users, row.prev_paid_users)
+          },
+          totalRevenue: {
+            value: parseFloat(row.total_revenue.toFixed(2)),
+            ...calcTrend(row.total_revenue, row.prev_total_revenue)
+          },
+          monthlyRecurringRevenue: {
+            value: parseFloat(row.monthly_recurring_revenue.toFixed(2)),
+            ...calcTrend(row.monthly_recurring_revenue, row.prev_mrr)
+          },
+          churnRate: {
+            value: parseFloat(churnRate.toFixed(2)),
+            percentage: parseFloat((churnRate - prevChurnRate).toFixed(2)),
+            direction: churnRate <= prevChurnRate ? "down" : "up"
+          }
+        }
+      };
+    } catch (error) {
+      logger.error(`Error fetching admin KPIs: ${error.message}`);
+      throw error;
+    }
+  }
 }
 
 module.exports = AnalyticsService;

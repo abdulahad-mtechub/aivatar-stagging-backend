@@ -50,6 +50,11 @@ exports.getUserAnalytics = asyncHandler(async (req, res) => {
   return apiResponse(res, 200, "User analytics retrieved successfully", data);
 });
 
+exports.getKPIs = asyncHandler(async (req, res) => {
+  const data = await AnalyticsService.getAdminKPIs();
+  return apiResponse(res, 200, "Admin KPIs retrieved successfully", data);
+});
+
 /**
  * GET /api/analytics/users/timeseries
  * Query: group=day|week|month|year (default month)
