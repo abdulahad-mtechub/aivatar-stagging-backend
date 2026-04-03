@@ -26,6 +26,7 @@ const demoVideoRoutes = require("./demoVideo.routes");
 const adminDemoVideoRoutes = require("./adminDemoVideo.routes");
 const analyticsRoutes = require("./analytics.routes");
 const goalRoutes = require("./goal.routes");
+const miniGoalRoutes = require("./miniGoal.routes");
 
 // Mount route modules
 router.use("/auth", authRoutes);
@@ -51,6 +52,7 @@ router.use("/stripe", stripeRoutes);
 router.use("/activity", activityRoutes);
 router.use("/analytics", analyticsRoutes);
 router.use("/goals", goalRoutes);
+router.use("/mini-goals", miniGoalRoutes);
 router.use("/demo-videos", demoVideoRoutes);
 router.use("/admin/demo-videos", adminDemoVideoRoutes);
 
