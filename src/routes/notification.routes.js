@@ -1,14 +1,18 @@
 const express = require("express");
 const router = express.Router();
 const notificationController = require("../controllers/notification.controller");
-const { protect } = require("../middlewares/auth.middleware");
+const { protect, restrictTo } = require("../middlewares/auth.middleware");
 const authMiddleware = protect;
+const adminMiddleware = restrictTo("admin");
 
 // Public route to get static templates
 router.get("/templates", notificationController.getTemplates);
 
-// Public: broadcast in-app + push to all active app users
-router.post("/broadcast-active", notificationController.broadcastToActiveUsers);
+// Admin: broadcast in-app + push to all active app users
+router.post("/broadcast-active", authMiddleware, adminMiddleware, notificationController.broadcastToActiveUsers);
+
+// Admin: get notifications sent by admin
+router.get("/admin/sent", authMiddleware, adminMiddleware, notificationController.listSentByAdmin);
 
 // In-app notifications list (All/Unread)
 router.get("/", authMiddleware, notificationController.list);

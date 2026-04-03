@@ -9,5 +9,6 @@ router.use(restrictTo("admin"));
 
 router.get("/users/timeseries", analyticsController.getUserRegistrationsTimeseries);
 router.get("/users", analyticsController.getUserAnalytics);
+router.get("/kpis", analyticsController.getKPIs);
 
 module.exports = router;

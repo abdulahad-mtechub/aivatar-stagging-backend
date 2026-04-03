@@ -19,24 +19,24 @@ class RewardService {
   // ─── Admin: Reward Rule Management ───────────────────────────────────────
 
   static async getAllRules(options = {}) {
-    const { page = 1, limit = 10 } = options;
-    const reward_type = options.reward_type || options.rewardtype;
-    const offset = (page - 1) * limit;
-    try {
-      let query = "SELECT * FROM reward_management";
-      let countQuery = "SELECT COUNT(*) FROM reward_management";
-      const params = [];
-      const where = [];
+      const { page = 1, limit = 10 } = options;
+      const reward_type = options.reward_type || options.rewardtype;
+      const offset = (page - 1) * limit;
+      try {
+        let query = "SELECT * FROM reward_management";
+        let countQuery = "SELECT COUNT(*) FROM reward_management";
+        const params = [];
+        const where = [];
 
-      if (reward_type) {
-        params.push(reward_type);
-        where.push(`reward_type = $${params.length}`);
-      }
+        if (reward_type) {
+          params.push(reward_type);
+          where.push(`reward_type = $${params.length}`);
+        }
 
-      if (where.length > 0) {
-        query += ` WHERE ${where.join(" AND ")}`;
-        countQuery += ` WHERE ${where.join(" AND ")}`;
-      }
+        if (where.length > 0) {
+          query += ` WHERE ${where.join(" AND ")}`;
+          countQuery += ` WHERE ${where.join(" AND ")}`;
+        }
 
       const countParams = [...params];
       query += ` ORDER BY created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
@@ -73,8 +73,9 @@ class RewardService {
   static async createRule(data) {
     const {
       name, description, module_type, trigger_event,
-      reward_type, type = "generic", points_amount,
-      frequency_limit, events_per_day = 1, is_active = true
+      reward_type, points_amount,
+      frequency_limit, events_per_day = 1, is_active = true,
+      price, currency
     } = data;
     const key = normalizeRuleName(name);
     if (!key) {
@@ -90,9 +91,9 @@ class RewardService {
       }
       const result = await db.query(
         `INSERT INTO reward_management 
-          (name, description, module_type, trigger_event, reward_type, type, points_amount, frequency_limit, events_per_day, is_active)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-        [name, description, module_type, trigger_event, reward_type, type, points_amount, frequency_limit, events_per_day, is_active]
+          (name, description, module_type, trigger_event, reward_type, points_amount, frequency_limit, events_per_day, is_active, price, currency)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+        [name, description, module_type, trigger_event, reward_type, points_amount, frequency_limit, events_per_day, is_active, price, currency]
       );
       return result.rows[0];
     } catch (error) {
@@ -105,7 +106,7 @@ class RewardService {
   }
 
   static async updateRule(id, data) {
-    const { name, description, module_type, trigger_event, reward_type, type, points_amount, frequency_limit, events_per_day, is_active } = data;
+    const { name, description, module_type, trigger_event, reward_type, points_amount, frequency_limit, events_per_day, is_active, price, currency } = data;
     try {
       if (name !== undefined && name !== null) {
         const key = normalizeRuleName(name);
@@ -127,14 +128,15 @@ class RewardService {
           module_type = COALESCE($3, module_type),
           trigger_event = COALESCE($4, trigger_event),
           reward_type = COALESCE($5, reward_type),
-          type = COALESCE($6, type),
-          points_amount = COALESCE($7, points_amount),
-          frequency_limit = COALESCE($8, frequency_limit),
-          events_per_day = COALESCE($9, events_per_day),
-          is_active = COALESCE($10, is_active),
+          points_amount = COALESCE($6, points_amount),
+          frequency_limit = COALESCE($7, frequency_limit),
+          events_per_day = COALESCE($8, events_per_day),
+          is_active = COALESCE($9, is_active),
+          price = COALESCE($10, price),
+          currency = COALESCE($11, currency),
           updated_at = NOW()
-        WHERE id = $11 RETURNING *`,
-        [name, description, module_type, trigger_event, reward_type, type, points_amount, frequency_limit, events_per_day, is_active, id]
+        WHERE id = $12 RETURNING *`,
+        [name, description, module_type, trigger_event, reward_type, points_amount, frequency_limit, events_per_day, is_active, price, currency, id]
       );
       return result.rows[0] || null;
     } catch (error) {

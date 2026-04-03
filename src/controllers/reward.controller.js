@@ -17,12 +17,12 @@ class RewardController {
   });
 
   static createRule = asyncHandler(async (req, res) => {
-    const { name, points_amount } = req.body;
-    if (!name || !points_amount) {
-      return errorResponse(res, "name and points_amount are required", 400);
+    const { name, points_amount, price } = req.body;
+    if (!name || (points_amount === undefined && !price)) {
+      return errorResponse(res, "name and either points_amount or price are required", 400);
     }
     const rule = await RewardService.createRule(req.body);
-    return successResponse(res, { message: "Reward rule created", data: rule }, 201);
+    return successResponse(res, { message: "Reward/Pricing rule created", data: rule }, 201);
   });
 
   static updateRule = asyncHandler(async (req, res) => {

@@ -13,6 +13,7 @@ class CronService {
       Deno.cron('scheduled-reminders', '* * * * *', async () => {
         logger.info('⏳ Deno Cron triggered: Checking for scheduled reminders...');
         await CronService.processScheduledReminders();
+        await CronService.processMotivationalQuotes();
       });
       logger.info('✅ Deno Cron jobs initialized successfully.');
     } else {
@@ -22,6 +23,7 @@ class CronService {
       cron.schedule('* * * * *', async () => {
         logger.info('⏳ Node Cron triggered: Checking for scheduled reminders...');
         await CronService.processScheduledReminders();
+        await CronService.processMotivationalQuotes();
       });
       logger.info('✅ Node Cron jobs initialized successfully.');
     }
@@ -30,7 +32,47 @@ class CronService {
     setTimeout(async () => {
       logger.info('⏳ Temporary 1-minute test trigger executing...');
       await CronService.processScheduledReminders();
+      await CronService.processMotivationalQuotes();
     }, 60 * 1000);
+  }
+
+  static async processMotivationalQuotes() {
+    try {
+      const MotivationalQuoteService = require('./motivationalQuote.service');
+      const quotes = await MotivationalQuoteService.getDueQuotes();
+
+      if (quotes.length === 0) return;
+
+      for (const quote of quotes) {
+        // Check if already sent today to avoid double-ticks (since last_sent_at was removed)
+        const checkRes = await db.query(
+          `SELECT 1 FROM notifications 
+           WHERE type = 'motivational_quote' 
+             AND title = $1 
+             AND created_at >= CURRENT_DATE 
+           LIMIT 1`,
+          [quote.author ? `Quote by ${quote.author}` : "Daily Motivation"]
+        );
+
+        if (checkRes.rows.length > 0) continue;
+
+        logger.info(`Sending motivational quote: "${quote.text.substring(0, 20)}..."`);
+        
+        await NotificationService.broadcastToActiveUsers({
+          type: "motivational_quote",
+          title: quote.author ? `Quote by ${quote.author}` : "Daily Motivation",
+          body: quote.text,
+          metadata: { quote_id: quote.id }
+        });
+
+        // For one-off quotes, deactivate them after sending
+        if (quote.frequency === 'one-off') {
+          await MotivationalQuoteService.update(quote.id, { is_active: false });
+        }
+      }
+    } catch (err) {
+      logger.error(`CRON processMotivationalQuotes Error: ${err.message}`);
+    }
   }
 
   /**

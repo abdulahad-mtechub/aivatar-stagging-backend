@@ -422,11 +422,6 @@ CREATE INDEX IF NOT EXISTS idx_user_measurements_recorded_date ON user_measureme
 
 
 -- ==========================================
--- Initial Admin User (optional)
--- ==========================================
-
-
--- ==========================================
 -- Coins, Rewards & Badge System
 -- ==========================================
 
@@ -438,10 +433,9 @@ CREATE TABLE IF NOT EXISTS reward_management (
   module_type VARCHAR(50),
   trigger_event VARCHAR(100),
   reward_type VARCHAR(50),
-  type VARCHAR(50) DEFAULT 'generic',
   points_amount INTEGER NOT NULL DEFAULT 10 CHECK (points_amount >= 10),
-  frequency_limit VARCHAR(50),
-  events_per_day INTEGER DEFAULT 1,
+  price DECIMAL(10, 2),
+  currency VARCHAR(10),
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
@@ -571,4 +565,27 @@ CREATE TABLE IF NOT EXISTS mini_goals (
 CREATE INDEX IF NOT EXISTS idx_mini_goals_user_id ON mini_goals(user_id);
 CREATE INDEX IF NOT EXISTS idx_mini_goals_rule_id ON mini_goals(rule_id);
 CREATE INDEX IF NOT EXISTS idx_mini_goals_status ON mini_goals(status);
+
+-- 032_motivational_quotes.sql
+CREATE TABLE IF NOT EXISTS motivational_quotes (
+  id SERIAL PRIMARY KEY,
+  text TEXT NOT NULL,
+  author VARCHAR(255),
+  frequency VARCHAR(20) DEFAULT 'daily' CHECK (frequency IN ('daily', 'weekly', 'one-off')),
+  day_of_week INTEGER CHECK (day_of_week BETWEEN 1 AND 7), -- 1=Monday, 7=Sunday
+  scheduled_at TIMESTAMP,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_motivational_quotes_frequency ON motivational_quotes(frequency);
+CREATE INDEX IF NOT EXISTS idx_motivational_quotes_is_active ON motivational_quotes(is_active);
+CREATE INDEX IF NOT EXISTS idx_motivational_quotes_scheduled_at ON motivational_quotes(scheduled_at);
+
+-- 033_modify_reward_management.sql
+-- Update reward_management
+ALTER TABLE reward_management ADD COLUMN IF NOT EXISTS price DECIMAL(10, 2);
+ALTER TABLE reward_management ADD COLUMN IF NOT EXISTS currency VARCHAR(10);
+ALTER TABLE reward_management DROP COLUMN IF EXISTS type;
 
