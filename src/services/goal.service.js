@@ -85,6 +85,22 @@ class GoalService {
       throw error;
     }
   }
+  static async getByUserId(userId) {
+    try {
+      const result = await db.query(
+        `SELECT g.id, g.title, g.description, g.plan_duration, g.goal_weight, g.created_at, g.updated_at
+         FROM profiles p
+         JOIN goals g ON g.id = p.goal_id
+         WHERE p.user_id = $1 AND g.deleted_at IS NULL
+         LIMIT 1`,
+        [userId]
+      );
+      return result.rows[0] || null;
+    } catch (error) {
+      logger.error(`Error getting goal by user id: ${error.message}`);
+      throw error;
+    }
+  }
 }
 
 module.exports = GoalService;

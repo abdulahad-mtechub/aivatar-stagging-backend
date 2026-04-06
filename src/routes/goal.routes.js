@@ -12,4 +12,7 @@ router.post("/", protect, restrictTo("admin"), goalController.createGoal);
 router.patch("/:id", protect, restrictTo("admin"), goalController.updateGoal);
 router.delete("/:id", protect, restrictTo("admin"), goalController.deleteGoal);
 
+// Admin: get goal by user ID
+router.get("/user/:userId", protect, restrictTo("admin"), goalController.getGoalByUserId);
+
 module.exports = router;

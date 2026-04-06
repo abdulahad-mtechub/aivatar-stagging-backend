@@ -369,6 +369,20 @@ class NotificationService {
     return res.rows;
   }
 
+  static async getSentByAdmin(options = {}) {
+    const { limit = 50, offset = 0 } = options;
+    const res = await db.query(
+      `SELECT title, body, MIN(created_at) as created_at, COUNT(user_id)::integer as recipients_count
+       FROM notifications
+       WHERE type = 'custom'
+       GROUP BY title, body
+       ORDER BY created_at DESC
+       LIMIT $1 OFFSET $2`,
+      [Number(limit), Number(offset)]
+    );
+    return res.rows;
+  }
+
   static async markRead(userId, notificationId) {
     const res = await db.query(
       `UPDATE notifications
