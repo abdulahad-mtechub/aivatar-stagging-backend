@@ -10,7 +10,7 @@ class CronService {
     if (isRunningOnDeno) {
       // ✅ Deno built-in cron (no import needed — Deno 2.x native)
       logger.info('Initializing CRON jobs with Deno.cron (built-in)...');
-      Deno.cron('scheduled-reminders', '* * * * *', async () => {
+      Deno.cron('scheduled-reminders', '0 * * * *', async () => {
         logger.info('⏳ Deno Cron triggered: Checking for scheduled reminders...');
         await CronService.processScheduledReminders();
         await CronService.processMotivationalQuotes();
@@ -20,7 +20,7 @@ class CronService {
       // ✅ Node.js fallback using node-cron
       logger.info('Initializing CRON jobs with Node Cron...');
       const cron = require('node-cron');
-      cron.schedule('* * * * *', async () => {
+      cron.schedule('0 * * * *', async () => {
         logger.info('⏳ Node Cron triggered: Checking for scheduled reminders...');
         await CronService.processScheduledReminders();
         await CronService.processMotivationalQuotes();
@@ -28,12 +28,12 @@ class CronService {
       logger.info('✅ Node Cron jobs initialized successfully.');
     }
 
-    // TEMPORARY: trigger once after 1 minute for testing
+    // TEMPORARY: trigger once after 1 hour for testing
     setTimeout(async () => {
-      logger.info('⏳ Temporary 1-minute test trigger executing...');
+      logger.info('⏳ Temporary 1-hour test trigger executing...');
       await CronService.processScheduledReminders();
       await CronService.processMotivationalQuotes();
-    }, 60 * 1000);
+    }, 60 * 60 * 1000);
   }
 
   static async processMotivationalQuotes() {

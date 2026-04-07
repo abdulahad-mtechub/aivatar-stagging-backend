@@ -18,15 +18,28 @@ exports.getTemplates = asyncHandler(async (req, res) => {
  */
 exports.updateToken = asyncHandler(async (req, res, next) => {
   const userId = req.user.id;
-  const { fcmToken } = req.body;
+  const { fcmToken, device_type, device_id } = req.body;
 
   if (!fcmToken) {
     return next(new AppError("FCM token is required", 400));
   }
+  if (!device_type || !String(device_type).trim()) {
+    return next(new AppError("device_type is required", 400));
+  }
+  if (!device_id || !String(device_id).trim()) {
+    return next(new AppError("device_id is required", 400));
+  }
 
-  await NotificationService.updateFcmToken(userId, fcmToken);
+  await NotificationService.updateFcmToken(userId, fcmToken, {
+    device_type: String(device_type).trim().toLowerCase(),
+    device_id: String(device_id).trim(),
+  });
   
-  return apiResponse(res, 200, "FCM token updated successfully", { fcmToken });
+  return apiResponse(res, 200, "FCM token updated successfully", {
+    fcmToken,
+    device_type: String(device_type).trim().toLowerCase(),
+    device_id: String(device_id).trim(),
+  });
 });
 
 /**
@@ -68,11 +81,8 @@ exports.list = asyncHandler(async (req, res) => {
  * Admin route to get list of distinct custom notifications they have sent
  */
 exports.listSentByAdmin = asyncHandler(async (req, res) => {
-  const data = await NotificationService.getSentByAdmin({
-    limit: req.query.limit || 50,
-    offset: req.query.offset || 0,
-  });
-  return apiResponse(res, 200, "Sent notifications retrieved successfully", { sent_notifications: data });
+  const data = await NotificationService.getSentByAdmin(req.query || {});
+  return apiResponse(res, 200, "Sent notifications retrieved successfully", data);
 });
 
 /**
@@ -139,4 +149,29 @@ exports.broadcastToActiveUsers = asyncHandler(async (req, res, next) => {
   );
 
   return apiResponse(res, 201, "Broadcast queued successfully", summary);
+});
+
+/**
+ * POST /api/notifications/broadcast-selected (admin)
+ * Body: { user_ids: number[], type?, title, body, metadata?, send_push? }
+ * Same as broadcast-active but only for listed user ids (eligible users only).
+ */
+exports.broadcastToSelectedUsers = asyncHandler(async (req, res, next) => {
+  const { user_ids, type, title, body, metadata, send_push } = req.body || {};
+
+  if (!title || !body) {
+    return next(new AppError("title and body are required", 400));
+  }
+
+  if (!Array.isArray(user_ids) || user_ids.length === 0) {
+    return next(new AppError("user_ids must be a non-empty array", 400));
+  }
+
+  const summary = await NotificationService.broadcastToSelectedUsers(user_ids, { type, title, body, metadata }, { send_push: send_push !== false });
+
+  if (summary.user_ids_requested === 0) {
+    return next(new AppError("user_ids must contain valid positive integer ids", 400));
+  }
+
+  return apiResponse(res, 201, "Notifications sent to selected users", summary);
 });

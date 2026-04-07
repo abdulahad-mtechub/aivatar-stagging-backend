@@ -29,9 +29,7 @@ class ContactController {
    * Get all contact queries (Admin)
    */
   static getAllContacts = asyncHandler(async (req, res) => {
-    const { page = 1, limit = 10 } = req.query;
-
-    const { contacts, pagination } = await ContactService.findAll({ page, limit });
+    const { contacts, pagination } = await ContactService.findAll(req.query || {});
 
     return successResponse(res, {
       message: "Contact queries fetched successfully",

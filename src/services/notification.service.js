@@ -1,6 +1,8 @@
 const admin = require("../config/firebase");
 const db = require("../config/database");
 const logger = require("../utils/logger");
+const { validatePaginationParams, generatePagination } = require("../utils/pagination");
+const { normalizeSearchTerm } = require("../utils/partialSearch");
 
 class NotificationService {
   /**
@@ -305,6 +307,118 @@ class NotificationService {
     };
   }
 
+  /**
+   * Same as broadcastToActiveUsers but only for given user ids.
+   * Only creates rows for users that exist, are not deleted, not blocked, and role = 'user'.
+   */
+  static async broadcastToSelectedUsers(userIds = [], payload = {}, options = {}) {
+    const {
+      type = "custom",
+      title,
+      body,
+      metadata = {},
+    } = payload;
+    const { send_push = true } = options;
+
+    if (!title || !body) {
+      throw new Error("title and body are required");
+    }
+
+    const uniqueIds = [
+      ...new Set(
+        (userIds || [])
+          .map((id) => Number(id))
+          .filter((n) => Number.isInteger(n) && n > 0)
+      ),
+    ];
+
+    if (uniqueIds.length === 0) {
+      return {
+        user_ids_requested: 0,
+        total_users: 0,
+        skipped_ineligible_or_missing: 0,
+        notifications_created: 0,
+        push_attempted: 0,
+        push_success: 0,
+        push_failed: 0,
+      };
+    }
+
+    const metaJson = JSON.stringify(metadata || {});
+
+    const res = await db.query(
+      `WITH target AS (
+         SELECT u.id
+         FROM users u
+         WHERE u.id = ANY($5::int[])
+           AND u.deleted_at IS NULL
+           AND u.block_status = false
+           AND u.role = 'user'
+       ),
+       inserted AS (
+         INSERT INTO notifications (user_id, type, title, body, metadata)
+         SELECT t.id, $1, $2, $3, $4::jsonb
+         FROM target t
+         RETURNING id, user_id
+       )
+       SELECT inserted.id AS notification_id, inserted.user_id, u.fcm_token
+       FROM inserted
+       JOIN users u ON u.id = inserted.user_id`,
+      [type, title, body, metaJson, uniqueIds]
+    );
+
+    const rows = res.rows;
+    const total_users = rows.length;
+    const skipped_ineligible_or_missing = uniqueIds.length - total_users;
+    let push_attempted = 0;
+    let push_success = 0;
+    let push_failed = 0;
+
+    if (send_push && rows.length > 0) {
+      const dataBase = {
+        type,
+        ...Object.fromEntries(
+          Object.entries(metadata || {}).map(([k, v]) => [k, String(v)])
+        ),
+      };
+
+      const withToken = rows.filter((r) => r.fcm_token && String(r.fcm_token).trim());
+      push_attempted = withToken.length;
+
+      const BATCH = 500;
+      for (let i = 0; i < withToken.length; i += BATCH) {
+        const batch = withToken.slice(i, i + BATCH);
+        const messages = batch.map((r) => ({
+          notification: { title, body },
+          token: r.fcm_token,
+          data: {
+            ...dataBase,
+            notification_id: String(r.notification_id),
+            user_id: String(r.user_id),
+          },
+        }));
+        try {
+          const response = await admin.messaging().sendEach(messages);
+          push_success += response.successCount;
+          push_failed += response.failureCount;
+        } catch (e) {
+          logger.error(`Selected-users push batch failed: ${e.message}`);
+          push_failed += batch.length;
+        }
+      }
+    }
+
+    return {
+      user_ids_requested: uniqueIds.length,
+      total_users,
+      skipped_ineligible_or_missing,
+      notifications_created: total_users,
+      push_attempted,
+      push_success,
+      push_failed,
+    };
+  }
+
   static async createCustomNotification(userId, payload = {}, options = {}) {
     const {
       type = "custom",
@@ -370,17 +484,63 @@ class NotificationService {
   }
 
   static async getSentByAdmin(options = {}) {
-    const { limit = 50, offset = 0 } = options;
+    const {
+      page = 1,
+      limit = 50,
+      q,
+      sort_by = "created_at",
+      sort_order = "desc",
+    } = options;
+    const { page: pageNum, limit: limitNum, offset } = validatePaginationParams(page, limit);
+    const searchTerm = normalizeSearchTerm(q);
+    const safeSortMap = {
+      title: "title",
+      body: "body",
+      created_at: "created_at",
+      recipients_count: "recipients_count",
+    };
+    const requestedSort = String(sort_by || "").toLowerCase();
+    const effectiveSort = safeSortMap[requestedSort] || "created_at";
+    const sortDir = String(sort_order || "").toLowerCase() === "asc" ? "ASC" : "DESC";
+
+    const params = [];
+    const where = [`type = 'custom'`];
+    if (searchTerm) {
+      params.push(`%${searchTerm}%`);
+      where.push(`(title ILIKE $${params.length} OR body ILIKE $${params.length})`);
+    }
+    const whereSql = `WHERE ${where.join(" AND ")}`;
+
+    const countRes = await db.query(
+      `SELECT COUNT(*)::int AS total
+       FROM (
+         SELECT 1
+         FROM notifications
+         ${whereSql}
+         GROUP BY title, body
+       ) grouped`,
+      params
+    );
+
+    const queryParams = [...params, limitNum, offset];
     const res = await db.query(
       `SELECT title, body, MIN(created_at) as created_at, COUNT(user_id)::integer as recipients_count
        FROM notifications
-       WHERE type = 'custom'
+       ${whereSql}
        GROUP BY title, body
-       ORDER BY created_at DESC
-       LIMIT $1 OFFSET $2`,
-      [Number(limit), Number(offset)]
+       ORDER BY ${effectiveSort} ${sortDir}, MIN(created_at) DESC
+       LIMIT $${queryParams.length - 1} OFFSET $${queryParams.length}`,
+      queryParams
     );
-    return res.rows;
+    const total = countRes.rows[0]?.total || 0;
+    return {
+      sent_notifications: res.rows,
+      pagination: {
+        ...generatePagination(pageNum, limitNum, total),
+        sort_by: Object.keys(safeSortMap).find((k) => safeSortMap[k] === effectiveSort) || "created_at",
+        sort_order: sortDir.toLowerCase(),
+      },
+    };
   }
 
   static async markRead(userId, notificationId) {
@@ -459,15 +619,47 @@ class NotificationService {
   /**
    * Update a user's FCM token
    */
-  static async updateFcmToken(userId, token) {
+  static async updateFcmToken(userId, token, options = {}) {
+    const { device_type = null, device_id = null } = options;
     try {
       await db.query(
-        "UPDATE users SET fcm_token = $1, updated_at = NOW() WHERE id = $2",
-        [token, userId]
+        `UPDATE users
+         SET fcm_token = $1,
+             fcm_device_type = $2,
+             fcm_device_id = $3,
+             updated_at = NOW()
+         WHERE id = $4`,
+        [token, device_type, device_id, userId]
       );
       return true;
     } catch (error) {
       logger.error(`Error updating FCM token for user ${userId}: ${error.message}`);
+      throw error;
+    }
+  }
+
+  static async clearFcmToken(userId, options = {}) {
+    const { device_id } = options;
+    try {
+      const params = [userId];
+      let where = "id = $1";
+      if (device_id) {
+        params.push(String(device_id));
+        where += ` AND fcm_device_id = $2`;
+      }
+      const res = await db.query(
+        `UPDATE users
+         SET fcm_token = NULL,
+             fcm_device_type = NULL,
+             fcm_device_id = NULL,
+             updated_at = NOW()
+         WHERE ${where}
+         RETURNING id`,
+        params
+      );
+      return res.rowCount > 0;
+    } catch (error) {
+      logger.error(`Error clearing FCM token for user ${userId}: ${error.message}`);
       throw error;
     }
   }

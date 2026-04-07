@@ -50,3 +50,16 @@ exports.getActivityLogsByUser = asyncHandler(async (req, res, next) => {
   return apiResponse(res, 200, "Activity logs fetched successfully", result);
 });
 
+exports.getLastWeekOverallLogs = asyncHandler(async (req, res) => {
+  const { action_type, sort_by = "DESC", page = 1, limit = 10 } = req.query;
+
+  const result = await ActivityService.getLastWeekOverallLogs({
+    action_type,
+    sort_by,
+    page,
+    limit,
+  });
+
+  return apiResponse(res, 200, "Last week overall activity logs fetched successfully", result);
+});
+

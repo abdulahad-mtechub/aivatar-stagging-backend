@@ -3,6 +3,7 @@ const ProfileService = require("../services/profile.service");
 const RewardService = require("../services/reward.service");
 const BadgeService = require("../services/badge.service");
 const ReminderService = require("../services/reminder.service");
+const NotificationService = require("../services/notification.service");
 const AppError = require("../utils/appError");
 const asyncHandler = require("../utils/asyncHandler");
 const { apiResponse } = require("../utils/apiResponse");
@@ -233,5 +234,21 @@ exports.changePassword = asyncHandler(async (req, res, next) => {
   } catch (error) {
     return next(new AppError(error.message, 400));
   }
+});
+
+/**
+ * Logout current user
+ * Optional body: { device_id }
+ * Clears stored FCM token/device metadata (device-specific when device_id is provided).
+ */
+exports.logout = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const { device_id } = req.body || {};
+
+  await NotificationService.clearFcmToken(userId, {
+    device_id: device_id ? String(device_id).trim() : undefined,
+  });
+
+  return apiResponse(res, 200, "Logged out successfully");
 });
 

@@ -1,6 +1,7 @@
 /**
  * Simple logger utility
  * This can be replaced with a more robust logging solution like Winston in the future
+ 
  */
 const logger = {
   info: (message) => {

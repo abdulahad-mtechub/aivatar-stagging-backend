@@ -1,5 +1,7 @@
 const db = require('../config/database');
 const logger = require('../utils/logger');
+const { validatePaginationParams, generatePagination } = require('../utils/pagination');
+const { normalizeSearchTerm } = require('../utils/partialSearch');
 
 class MotivationalQuoteService {
   static async create(data) {
@@ -50,20 +52,65 @@ class MotivationalQuoteService {
   }
 
   static async list(filters = {}) {
-    const { frequency, is_active } = filters;
+    const {
+      frequency,
+      is_active,
+      page = 1,
+      limit = 10,
+      q,
+      sort_by = "created_at",
+      sort_order = "desc",
+    } = filters;
+    const { page: pageNum, limit: limitNum, offset } = validatePaginationParams(page, limit);
+    const searchTerm = normalizeSearchTerm(q);
+    const safeSortMap = {
+      id: "id",
+      text: "text",
+      author: "author",
+      frequency: "frequency",
+      day_of_week: "day_of_week",
+      scheduled_at: "scheduled_at",
+      is_active: "is_active",
+      created_at: "created_at",
+      updated_at: "updated_at",
+    };
+    const requestedSort = String(sort_by || "").toLowerCase();
+    const effectiveSort = safeSortMap[requestedSort] || "created_at";
+    const sortDir = String(sort_order || "").toLowerCase() === "asc" ? "ASC" : "DESC";
     const where = [];
     const params = [];
     let i = 1;
 
     if (frequency) { where.push(`frequency = $${i++}`); params.push(frequency); }
     if (is_active !== undefined) { where.push(`is_active = $${i++}`); params.push(is_active === 'true' || is_active === true); }
+    if (searchTerm) {
+      where.push(`(text ILIKE $${i} OR author ILIKE $${i})`);
+      params.push(`%${searchTerm}%`);
+      i += 1;
+    }
 
     const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
-    const res = await db.query(
-      `SELECT * FROM motivational_quotes ${whereClause} ORDER BY created_at DESC`,
+    const countRes = await db.query(
+      `SELECT COUNT(*)::int AS total FROM motivational_quotes ${whereClause}`,
       params
     );
-    return res.rows;
+    const queryParams = [...params, limitNum, offset];
+    const res = await db.query(
+      `SELECT * FROM motivational_quotes
+       ${whereClause}
+       ORDER BY ${effectiveSort} ${sortDir}, id DESC
+       LIMIT $${queryParams.length - 1} OFFSET $${queryParams.length}`,
+      queryParams
+    );
+    const total = countRes.rows[0]?.total || 0;
+    return {
+      quotes: res.rows,
+      pagination: {
+        ...generatePagination(pageNum, limitNum, total),
+        sort_by: Object.keys(safeSortMap).find((k) => safeSortMap[k] === effectiveSort) || "created_at",
+        sort_order: sortDir.toLowerCase(),
+      },
+    };
   }
 
   /**

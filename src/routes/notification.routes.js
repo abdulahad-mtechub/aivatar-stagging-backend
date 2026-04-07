@@ -11,6 +11,9 @@ router.get("/templates", notificationController.getTemplates);
 // Admin: broadcast in-app + push to all active app users
 router.post("/broadcast-active", authMiddleware, adminMiddleware, notificationController.broadcastToActiveUsers);
 
+// Admin: same as broadcast-active but only for given user ids
+router.post("/broadcast-selected", authMiddleware, adminMiddleware, notificationController.broadcastToSelectedUsers);
+
 // Admin: get notifications sent by admin
 router.get("/admin/sent", authMiddleware, adminMiddleware, notificationController.listSentByAdmin);
 
