@@ -19,9 +19,26 @@ class RewardService {
   // ─── Admin: Reward Rule Management ───────────────────────────────────────
 
   static async getAllRules(options = {}) {
-      const { page = 1, limit = 10 } = options;
+      const { page = 1, limit = 10, q, sort_by = "created_at", sort_order = "desc" } = options;
       const reward_type = options.reward_type || options.rewardtype;
-      const offset = (page - 1) * limit;
+      const { page: pageNum, limit: limitNum, offset } = validatePaginationParams(page, limit);
+      const searchTerm = normalizeSearchTerm(q);
+      const safeSortMap = {
+        id: "id",
+        name: "name",
+        module_type: "module_type",
+        trigger_event: "trigger_event",
+        reward_type: "reward_type",
+        points_amount: "points_amount",
+        price: "price",
+        currency: "currency",
+        is_active: "is_active",
+        created_at: "created_at",
+        updated_at: "updated_at",
+      };
+      const requestedSort = String(sort_by || "").toLowerCase();
+      const effectiveSort = safeSortMap[requestedSort] || "created_at";
+      const sortDir = String(sort_order || "").toLowerCase() === "asc" ? "ASC" : "DESC";
       try {
         let query = "SELECT * FROM reward_management";
         let countQuery = "SELECT COUNT(*) FROM reward_management";
@@ -32,6 +49,12 @@ class RewardService {
           params.push(reward_type);
           where.push(`reward_type = $${params.length}`);
         }
+        if (searchTerm) {
+          params.push(`%${searchTerm}%`);
+          where.push(
+            `(name ILIKE $${params.length} OR module_type ILIKE $${params.length} OR trigger_event ILIKE $${params.length} OR reward_type ILIKE $${params.length} OR currency ILIKE $${params.length})`
+          );
+        }
 
         if (where.length > 0) {
           query += ` WHERE ${where.join(" AND ")}`;
@@ -39,19 +62,19 @@ class RewardService {
         }
 
       const countParams = [...params];
-      query += ` ORDER BY created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-      params.push(limit, offset);
+      query += ` ORDER BY ${effectiveSort} ${sortDir}, id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+      params.push(limitNum, offset);
 
       const countRes = await db.query(countQuery, countParams);
       const result = await db.query(query, params);
+      const total = parseInt(countRes.rows[0].count, 10);
 
       return {
         rules: result.rows,
         pagination: {
-          page: parseInt(page, 10),
-          limit: parseInt(limit, 10),
-          total: parseInt(countRes.rows[0].count, 10),
-          pages: Math.ceil(parseInt(countRes.rows[0].count, 10) / limit),
+          ...generatePagination(pageNum, limitNum, total),
+          sort_by: Object.keys(safeSortMap).find((k) => safeSortMap[k] === effectiveSort) || "created_at",
+          sort_order: sortDir.toLowerCase(),
         },
       };
     } catch (error) {

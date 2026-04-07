@@ -10,8 +10,8 @@ class MotivationalQuoteController {
   });
 
   static getQuotes = asyncHandler(async (req, res) => {
-    const quotes = await MotivationalQuoteService.list(req.query);
-    return apiResponse(res, 200, "Motivational quotes retrieved successfully", { quotes });
+    const result = await MotivationalQuoteService.list(req.query || {});
+    return apiResponse(res, 200, "Motivational quotes retrieved successfully", result);
   });
 
   static updateQuote = asyncHandler(async (req, res, next) => {

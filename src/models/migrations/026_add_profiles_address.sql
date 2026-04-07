@@ -1,6 +1,0 @@
-BEGIN;
-
-ALTER TABLE profiles
-ADD COLUMN IF NOT EXISTS address TEXT;
-
-COMMIT;

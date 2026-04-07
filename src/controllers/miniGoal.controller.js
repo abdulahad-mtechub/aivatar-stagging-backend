@@ -5,10 +5,10 @@ const asyncHandler = require("../utils/asyncHandler");
 class MiniGoalController {
   static createGoal = asyncHandler(async (req, res) => {
     const userId = req.user.id;
-    const { title, start_date, end_date } = req.body;
+    const { title } = req.body;
 
-    if (!title || !start_date || !end_date) {
-      return errorResponse(res, "Title, start_date, and end_date are required", 400);
+    if (!title) {
+      return errorResponse(res, "Title is required", 400);
     }
 
     const goal = await MiniGoalService.create(userId, req.body);
@@ -17,20 +17,23 @@ class MiniGoalController {
 
   static getGoals = asyncHandler(async (req, res) => {
     const userId = req.user.id;
-    const goals = await MiniGoalService.listByUser(userId);
+    const goals = await MiniGoalService.listByUser(userId, {
+      currentDayOnly: true,
+      excludeSkipped: true,
+    });
     return successResponse(res, { message: "Mini goals fetched", data: goals });
   });
 
   static updateStatus = asyncHandler(async (req, res) => {
     const userId = req.user.id;
     const { id } = req.params;
-    const { status } = req.body;
+    const { status, rule_id } = req.body;
 
     if (!["completed", "skipped", "snoozed", "active"].includes(status)) {
       return errorResponse(res, "Invalid status", 400);
     }
 
-    const goal = await MiniGoalService.updateStatus(userId, id, status);
+    const goal = await MiniGoalService.updateStatus(userId, id, status, { rule_id });
     return successResponse(res, { message: `Mini goal marked as ${status}`, data: goal });
   });
 
@@ -45,7 +48,7 @@ class MiniGoalController {
 
   static getGoalsByUserId = asyncHandler(async (req, res) => {
     const { userId } = req.params;
-    const goals = await MiniGoalService.listByUser(userId);
+    const goals = await MiniGoalService.listByUser(userId, { currentDayOnly: false });
     return successResponse(res, { message: "User mini goals fetched", data: goals });
   });
 }

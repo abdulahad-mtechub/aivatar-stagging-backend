@@ -5,7 +5,7 @@ const { apiResponse } = require("../utils/apiResponse");
 
 // Public: list goals
 exports.getGoals = asyncHandler(async (req, res) => {
-  const result = await GoalService.listActive();
+  const result = await GoalService.listActive(req.query || {});
   return apiResponse(res, 200, "Goals retrieved successfully", result);
 });
 

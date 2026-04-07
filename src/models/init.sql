@@ -1,4 +1,4 @@
--- ==========================================
+user-- ==========================================
 -- Reusable Backend Starter Database Schema
 -- ==========================================
 
@@ -21,12 +21,16 @@ CREATE TABLE IF NOT EXISTS users (
   otp_expires_at TIMESTAMP,
   otp_purpose VARCHAR(32),
   password_reset_verified_at TIMESTAMP,
-  fcm_token VARCHAR(255)
+  fcm_token VARCHAR(255),
+  fcm_device_type VARCHAR(50),
+  fcm_device_id VARCHAR(255)
 );
 
 -- Backward-compatible columns for existing databases (password reset flow: verify-otp then change-password)
 ALTER TABLE users ADD COLUMN IF NOT EXISTS otp_purpose VARCHAR(32);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_verified_at TIMESTAMP;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS fcm_device_type VARCHAR(50);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS fcm_device_id VARCHAR(255);
 
 -- Create indexes for users table
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
@@ -553,8 +557,8 @@ CREATE TABLE IF NOT EXISTS mini_goals (
   rule_id INTEGER REFERENCES reward_management(id) ON DELETE SET NULL, 
   title VARCHAR(255) NOT NULL,
   description TEXT,
-  start_date DATE NOT NULL,
-  end_date DATE NOT NULL,
+  start_date DATE,
+  end_date DATE,
   status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'completed', 'skipped', 'snoozed')),
   type VARCHAR(50) DEFAULT 'custom',
   points_awarded INTEGER DEFAULT 0,
@@ -562,9 +566,30 @@ CREATE TABLE IF NOT EXISTS mini_goals (
   updated_at TIMESTAMP DEFAULT NOW()
 );
 
+ALTER TABLE mini_goals ALTER COLUMN start_date DROP NOT NULL;
+ALTER TABLE mini_goals ALTER COLUMN end_date DROP NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_mini_goals_user_id ON mini_goals(user_id);
 CREATE INDEX IF NOT EXISTS idx_mini_goals_rule_id ON mini_goals(rule_id);
 CREATE INDEX IF NOT EXISTS idx_mini_goals_status ON mini_goals(status);
+
+-- One mini goal title per user (case-insensitive, trimmed)
+WITH ranked_mini_goals AS (
+  SELECT
+    id,
+    ROW_NUMBER() OVER (
+      PARTITION BY user_id, LOWER(TRIM(title))
+      ORDER BY id ASC
+    ) AS rn
+  FROM mini_goals
+)
+DELETE FROM mini_goals
+WHERE id IN (
+  SELECT id FROM ranked_mini_goals WHERE rn > 1
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_mini_goals_user_title_normalized
+  ON mini_goals (user_id, LOWER(TRIM(title)));
 
 -- 032_motivational_quotes.sql
 CREATE TABLE IF NOT EXISTS motivational_quotes (
@@ -588,4 +613,16 @@ CREATE INDEX IF NOT EXISTS idx_motivational_quotes_scheduled_at ON motivational_
 ALTER TABLE reward_management ADD COLUMN IF NOT EXISTS price DECIMAL(10, 2);
 ALTER TABLE reward_management ADD COLUMN IF NOT EXISTS currency VARCHAR(10);
 ALTER TABLE reward_management DROP COLUMN IF EXISTS type;
+
+-- 034_coin_prices.sql
+CREATE TABLE IF NOT EXISTS coin_prices (
+  id SERIAL PRIMARY KEY,
+  coins INTEGER NOT NULL CHECK (coins > 0),
+  coins_price DECIMAL(12, 2) NOT NULL CHECK (coins_price >= 0),
+  currency VARCHAR(10) NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_coin_prices_created_at ON coin_prices(created_at DESC);
 

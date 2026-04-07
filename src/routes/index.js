@@ -28,6 +28,7 @@ const analyticsRoutes = require("./analytics.routes");
 const goalRoutes = require("./goal.routes");
 const miniGoalRoutes = require("./miniGoal.routes");
 const motivationalQuoteRoutes = require("./motivationalQuote.routes");
+const coinPriceRoutes = require("./coinPrice.routes");
 
 // Mount route modules
 router.use("/auth", authRoutes);
@@ -55,6 +56,7 @@ router.use("/analytics", analyticsRoutes);
 router.use("/goals", goalRoutes);
 router.use("/mini-goals", miniGoalRoutes);
 router.use("/motivational-quotes", motivationalQuoteRoutes);
+router.use("/coin-prices", coinPriceRoutes);
 router.use("/demo-videos", demoVideoRoutes);
 router.use("/admin/demo-videos", adminDemoVideoRoutes);
 
