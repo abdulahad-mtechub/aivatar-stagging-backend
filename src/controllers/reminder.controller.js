@@ -41,9 +41,9 @@ exports.updateMyReminders = asyncHandler(async (req, res, next) => {
  * Create a single reminder
  */
 exports.addReminder = asyncHandler(async (req, res, next) => {
-  const { reminder_type, reminder_time } = req.body;
-  if (!reminder_type || !reminder_time) {
-    return next(new AppError("reminder_type and reminder_time are required", 400));
+  const { reminder_type } = req.body;
+  if (!reminder_type) {
+    return next(new AppError("reminder_type is required", 400));
   }
   const reminder = await ReminderService.addReminder(req.user.id, req.body);
   return apiResponse(res, 201, "Reminder created successfully", reminder);
