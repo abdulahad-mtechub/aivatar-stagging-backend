@@ -58,7 +58,7 @@ class ReminderService {
         
         for (const r of reminders) {
           const { reminder_type, reminder_time, day_of_week, is_enabled, timezone, metadata } = r;
-          if (reminder_type && reminder_time) {
+          if (reminder_type) {
             await db.query(
               `INSERT INTO reminder_settings (user_id, reminder_type, reminder_time, day_of_week, is_enabled, do_not_disturb_enabled, timezone, metadata)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,

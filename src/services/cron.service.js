@@ -89,6 +89,7 @@ class CronService {
         WHERE r.is_enabled = true
           AND r.do_not_disturb_enabled = false
           AND r.timezone IS NOT NULL
+          AND r.reminder_time IS NOT NULL
           AND EXTRACT(HOUR FROM CURRENT_TIMESTAMP AT TIME ZONE r.timezone) = EXTRACT(HOUR FROM r.reminder_time)
           AND EXTRACT(MINUTE FROM CURRENT_TIMESTAMP AT TIME ZONE r.timezone) = EXTRACT(MINUTE FROM r.reminder_time)
           AND (

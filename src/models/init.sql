@@ -377,7 +377,7 @@ CREATE TABLE IF NOT EXISTS reminder_settings (
   id SERIAL PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   reminder_type VARCHAR(50) NOT NULL,
-  reminder_time TIME NOT NULL,
+  reminder_time TIME,
   day_of_week INTEGER CHECK (day_of_week BETWEEN 1 AND 7),
   is_enabled BOOLEAN DEFAULT true,
   do_not_disturb_enabled BOOLEAN DEFAULT false,
@@ -386,6 +386,9 @@ CREATE TABLE IF NOT EXISTS reminder_settings (
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Backward-compatible: allow metadata-driven reminders without a single reminder_time.
+ALTER TABLE reminder_settings ALTER COLUMN reminder_time DROP NOT NULL;
 
 -- Indexes for reminder tables
 CREATE INDEX IF NOT EXISTS idx_reminder_settings_user_type ON reminder_settings(user_id, reminder_type);
