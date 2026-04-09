@@ -1,5 +1,6 @@
 const db = require("../config/database");
 const logger = require("../utils/logger");
+const { buildTimestampDateRangeFilter } = require("../utils/dateRange");
 
 class ActivityService {
   static async recordActivity({ user_id, module_key, description = "", action_type }) {
@@ -24,6 +25,8 @@ class ActivityService {
     sort_by = "DESC",
     page = 1,
     limit = 10,
+    start_date,
+    end_date,
   }) {
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));
@@ -34,16 +37,26 @@ class ActivityService {
       ? String(sort_by).toUpperCase()
       : "DESC";
 
-    let whereClause = "WHERE user_id = $1";
+    let whereClause = "WHERE a.user_id = $1";
     const params = [user_id];
     if (action_type) {
-      whereClause += ` AND action_type = $2`;
+      whereClause += ` AND a.action_type = $2`;
       params.push(action_type);
+    }
+    const dateFilter = buildTimestampDateRangeFilter(
+      "a.created_at",
+      start_date,
+      end_date,
+      params.length + 1
+    );
+    if (dateFilter.clauses.length > 0) {
+      whereClause += ` AND ${dateFilter.clauses.join(" AND ")}`;
+      params.push(...dateFilter.params);
     }
 
     const countQuery = `
       SELECT COUNT(*) AS total
-      FROM activity_log
+      FROM activity_log a
       ${whereClause}
     `;
 

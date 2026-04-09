@@ -8,10 +8,13 @@ const { restrictTo } = require("../middlewares/auth.middleware");
 router.delete("/me", protect, userController.deleteMe);
 
 // Admin only routes
+router.post("/", protect, restrictTo("admin"), userController.createUser);
 router.get("/with-profile", protect, restrictTo("admin"), userController.getAllUsersWithProfile);
 router.get("/deleted", protect, restrictTo("admin"), userController.getDeletedUsersWithProfile);
 router.get("/:id/details", protect, restrictTo("admin"), userController.getUserDetailById);
 router.get("/:id/activity-logs", protect, restrictTo("admin"), userController.getUserActivityLogs);
+router.patch("/:id/profile", protect, restrictTo("admin"), userController.updateUserProfileByAdmin);
+router.delete("/:id/hard", protect, restrictTo("admin"), userController.hardDeleteUser);
 router.get("/", protect, restrictTo("admin"), userController.getAllUsers);
 router.patch("/:id/account-status", protect, restrictTo("admin"), userController.setUserAccountStatus);
 router.get("/:id", protect, restrictTo("admin"), userController.getUserById);

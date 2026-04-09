@@ -9,6 +9,20 @@ const { generateOtp, sendOtp } = require("../utils/otp");
  * Auth Service - handles authentication, token generation, and password management
  */
 class AuthService {
+  static async touchLastLogin(userId) {
+    try {
+      const result = await db.query(
+        `UPDATE users SET last_login = NOW(), updated_at = NOW() WHERE id = $1 RETURNING *`,
+        [userId]
+      );
+      return result.rows[0] || null;
+    } catch (error) {
+      // Backward-compatibility for databases not yet migrated with last_login column
+      if (error?.code === "42703") return null;
+      throw error;
+    }
+  }
+
   /**
    * Authenticate a user and generate tokens
    * @param {string} email - User email
@@ -46,11 +60,13 @@ class AuthService {
         throw new Error("Please verify your account first");
       }
 
+      const userAfterLogin = (await this.touchLastLogin(user.id)) || user;
+
       // Generate tokens
-      const accessToken = this.generateAccessToken(user);
+      const accessToken = this.generateAccessToken(userAfterLogin);
 
       // Remove password from user object
-      const { password: _, ...userWithoutPassword } = user;
+      const { password: _, ...userWithoutPassword } = userAfterLogin;
 
       return {
         user: userWithoutPassword,
@@ -104,11 +120,13 @@ class AuthService {
         throw new Error("Please verify your account first");
       }
 
+      const userAfterLogin = (await this.touchLastLogin(user.id)) || user;
+
       // Generate tokens
-      const accessToken = this.generateAccessToken(user);
+      const accessToken = this.generateAccessToken(userAfterLogin);
 
       // Remove password from user object
-      const { password: _, ...userWithoutPassword } = user;
+      const { password: _, ...userWithoutPassword } = userAfterLogin;
 
       return {
         user: userWithoutPassword,

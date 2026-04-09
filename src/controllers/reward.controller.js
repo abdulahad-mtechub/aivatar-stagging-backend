@@ -1,12 +1,14 @@
 const RewardService = require("../services/reward.service");
 const { successResponse, errorResponse } = require("../utils/apiResponse");
 const asyncHandler = require("../utils/asyncHandler");
+const { getValidatedDateRange } = require("../utils/dateRange");
 
 class RewardController {
   // ─── Admin: Rule Management ───────────────────────────────────────────────
 
   static getAllRules = asyncHandler(async (req, res) => {
-    const data = await RewardService.getAllRules(req.query);
+    const { start_date, end_date } = getValidatedDateRange(req.query || {});
+    const data = await RewardService.getAllRules({ ...(req.query || {}), start_date, end_date });
     return successResponse(res, { message: "Reward rules fetched", data });
   });
 
@@ -58,7 +60,8 @@ class RewardController {
   });
 
   static getLeaderboard = asyncHandler(async (req, res) => {
-    const data = await RewardService.getLeaderboard(req.query);
+    const { start_date, end_date } = getValidatedDateRange(req.query || {});
+    const data = await RewardService.getLeaderboard({ ...(req.query || {}), start_date, end_date });
     return successResponse(res, { message: "Leaderboard fetched", data });
   });
 }

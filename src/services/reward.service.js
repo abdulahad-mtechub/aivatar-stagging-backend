@@ -3,6 +3,7 @@ const logger = require("../utils/logger");
 const AppError = require("../utils/appError");
 const { validatePaginationParams, generatePagination } = require("../utils/pagination");
 const { parseBoolean, normalizeSearchTerm } = require("../utils/partialSearch");
+const { buildTimestampDateRangeFilter } = require("../utils/dateRange");
 
 function isUniqueViolation(error) {
   return error && error.code === "23505";
@@ -19,7 +20,7 @@ class RewardService {
   // ─── Admin: Reward Rule Management ───────────────────────────────────────
 
   static async getAllRules(options = {}) {
-      const { page = 1, limit = 10, q, sort_by = "created_at", sort_order = "desc" } = options;
+      const { page = 1, limit = 10, q, sort_by = "created_at", sort_order = "desc", start_date, end_date } = options;
       const reward_type = options.reward_type || options.rewardtype;
       const { page: pageNum, limit: limitNum, offset } = validatePaginationParams(page, limit);
       const searchTerm = normalizeSearchTerm(q);
@@ -54,6 +55,16 @@ class RewardService {
           where.push(
             `(name ILIKE $${params.length} OR module_type ILIKE $${params.length} OR trigger_event ILIKE $${params.length} OR reward_type ILIKE $${params.length} OR currency ILIKE $${params.length})`
           );
+        }
+        const dateFilter = buildTimestampDateRangeFilter(
+          "created_at",
+          start_date,
+          end_date,
+          params.length + 1
+        );
+        if (dateFilter.clauses.length > 0) {
+          where.push(...dateFilter.clauses);
+          params.push(...dateFilter.params);
         }
 
         if (where.length > 0) {
@@ -291,6 +302,8 @@ class RewardService {
       sort_by = "totalCoins",
       sort_order = "desc",
       not_pagination,
+      start_date,
+      end_date,
     } = options;
 
     const disablePagination = parseBoolean(not_pagination, false);
@@ -316,6 +329,16 @@ class RewardService {
         whereParts.push(
           `(u.name ILIKE $${params.length} OR u.email ILIKE $${params.length} OR COALESCE(b.title, '') ILIKE $${params.length})`
         );
+      }
+      const dateFilter = buildTimestampDateRangeFilter(
+        "u.created_at",
+        start_date,
+        end_date,
+        params.length + 1
+      );
+      if (dateFilter.clauses.length > 0) {
+        whereParts.push(...dateFilter.clauses);
+        params.push(...dateFilter.params);
       }
       const whereSql = whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "";
 

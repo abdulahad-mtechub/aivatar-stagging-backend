@@ -2,6 +2,7 @@ const ContactService = require("../services/contact.service");
 const { successResponse, errorResponse } = require("../utils/apiResponse");
 const asyncHandler = require("../utils/asyncHandler");
 const { generatePagination } = require("../utils/pagination");
+const { getValidatedDateRange } = require("../utils/dateRange");
 
 /**
  * Contact Controller - handles contact-related requests
@@ -29,7 +30,12 @@ class ContactController {
    * Get all contact queries (Admin)
    */
   static getAllContacts = asyncHandler(async (req, res) => {
-    const { contacts, pagination } = await ContactService.findAll(req.query || {});
+    const { start_date, end_date } = getValidatedDateRange(req.query || {});
+    const { contacts, pagination } = await ContactService.findAll({
+      ...(req.query || {}),
+      start_date,
+      end_date,
+    });
 
     return successResponse(res, {
       message: "Contact queries fetched successfully",

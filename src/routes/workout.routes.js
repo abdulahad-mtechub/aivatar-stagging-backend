@@ -6,6 +6,7 @@ const { protect, restrictTo } = require("../middlewares/auth.middleware");
 const asyncHandler = require("../utils/asyncHandler");
 const ExerciseService = require("../services/exercise.service");
 const { successResponse } = require("../utils/apiResponse");
+const { getValidatedDateRange } = require("../utils/dateRange");
 
 // --- Exercise Content APIs ---
 // Create Exercise (AI-Driven from Frontend)
@@ -16,7 +17,8 @@ router.put("/exercises/:id", protect, restrictTo("admin"), WorkoutController.upd
 router.delete("/exercises/:id", protect, restrictTo("admin"), WorkoutController.deleteExercise);
 // Get list of exercises
 router.get("/exercises", protect, asyncHandler(async (req, res) => {
-  const result = await ExerciseService.findAll(req.query);
+  const { start_date, end_date } = getValidatedDateRange(req.query || {});
+  const result = await ExerciseService.findAll({ ...(req.query || {}), start_date, end_date });
   return successResponse(res, { message: "Exercises fetched", data: result });
 }));
 // Admin: list workouts for a specific user

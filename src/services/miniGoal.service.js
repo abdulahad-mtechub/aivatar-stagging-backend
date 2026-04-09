@@ -2,6 +2,7 @@ const db = require("../config/database");
 const logger = require("../utils/logger");
 const RewardService = require("./reward.service");
 const AppError = require("../utils/appError");
+const { buildTimestampDateRangeFilter } = require("../utils/dateRange");
 
 class MiniGoalService {
   static buildTodayFilterSql(alias = "mg") {
@@ -49,19 +50,30 @@ class MiniGoalService {
   }
 
   static async listByUser(userId, options = {}) {
-    const { currentDayOnly = false, excludeSkipped = false } = options;
+    const { currentDayOnly = false, excludeSkipped = false, start_date, end_date } = options;
     try {
       const todayFilter = this.buildTodayFilterSql("mg");
       const parts = ["mg.user_id = $1"];
+      const params = [userId];
       if (currentDayOnly) parts.push(`(${todayFilter})`);
       if (excludeSkipped) parts.push(`mg.status <> 'skipped'`);
+      const dateFilter = buildTimestampDateRangeFilter(
+        "mg.created_at",
+        start_date,
+        end_date,
+        params.length + 1
+      );
+      if (dateFilter.clauses.length > 0) {
+        parts.push(...dateFilter.clauses);
+        params.push(...dateFilter.params);
+      }
       const where = `WHERE ${parts.join(" AND ")}`;
       const result = await db.query(
         `SELECT *
          FROM mini_goals mg
          ${where}
          ORDER BY mg.created_at DESC`,
-        [userId]
+        params
       );
       return result.rows;
     } catch (error) {
