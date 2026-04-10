@@ -4,6 +4,7 @@ const WorkoutSessionService = require("../services/workoutSession.service");
 const UserService = require("../services/user.service");
 const { successResponse, errorResponse } = require("../utils/apiResponse");
 const asyncHandler = require("../utils/asyncHandler");
+const { getValidatedDateRange } = require("../utils/dateRange");
 
 /**
  * Workout Controller - handles workout, exercise, and logging requests
@@ -312,6 +313,7 @@ class WorkoutController {
     const user = await UserService.findById(userId);
     if (!user) return errorResponse(res, "User not found", 404);
 
+    const { start_date, end_date } = getValidatedDateRange(req.query || {});
     const result = await WorkoutService.findAllByUserId(userId, {
       include_exercises: req.query.include_exercises !== "false",
       page: req.query.page,
@@ -320,6 +322,8 @@ class WorkoutController {
       sort_by: req.query.sort_by,
       sort_order: req.query.sort_order,
       not_pagination: req.query.not_pagination,
+      start_date,
+      end_date,
     });
 
     return successResponse(res, {

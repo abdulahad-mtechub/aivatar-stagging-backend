@@ -2,10 +2,12 @@ const GoalService = require("../services/goal.service");
 const AppError = require("../utils/appError");
 const asyncHandler = require("../utils/asyncHandler");
 const { apiResponse } = require("../utils/apiResponse");
+const { getValidatedDateRange } = require("../utils/dateRange");
 
 // Public: list goals
 exports.getGoals = asyncHandler(async (req, res) => {
-  const result = await GoalService.listActive(req.query || {});
+  const { start_date, end_date } = getValidatedDateRange(req.query || {});
+  const result = await GoalService.listActive({ ...(req.query || {}), start_date, end_date });
   return apiResponse(res, 200, "Goals retrieved successfully", result);
 });
 
@@ -25,7 +27,7 @@ exports.getGoalById = asyncHandler(async (req, res, next) => {
 
 // Admin: create goal
 exports.createGoal = asyncHandler(async (req, res, next) => {
-  const { title, description, plan_duration, goal_weight } = req.body || {};
+  const { title, description, image, image_url, plan_duration, goal_weight } = req.body || {};
 
   if (!title || !String(title).trim()) {
     return next(new AppError("Please provide goal title", 400));
@@ -42,6 +44,7 @@ exports.createGoal = asyncHandler(async (req, res, next) => {
   const result = await GoalService.create({
     title: String(title).trim(),
     description: description ?? null,
+    image: image ?? image_url ?? null,
     plan_duration: plan_duration ? String(plan_duration).trim() : null,
     goal_weight: parsedWeight,
   });
@@ -56,16 +59,18 @@ exports.updateGoal = asyncHandler(async (req, res, next) => {
     return next(new AppError("Invalid goal id", 400));
   }
 
-  const { title, description, plan_duration, goal_weight } = req.body || {};
+  const { title, description, image, image_url, plan_duration, goal_weight } = req.body || {};
   if (
     title === undefined &&
     description === undefined &&
+    image === undefined &&
+    image_url === undefined &&
     plan_duration === undefined &&
     goal_weight === undefined
   ) {
     return next(
       new AppError(
-        "Please provide at least one field: title, description, plan_duration, goal_weight",
+        "Please provide at least one field: title, description, image_url, plan_duration, goal_weight",
         400
       )
     );
@@ -87,6 +92,7 @@ exports.updateGoal = asyncHandler(async (req, res, next) => {
   const result = await GoalService.update(goalId, {
     title: title !== undefined ? String(title).trim() : undefined,
     description,
+    image: image !== undefined ? image : image_url,
     plan_duration:
       plan_duration !== undefined
         ? plan_duration
@@ -128,7 +134,8 @@ exports.getGoalByUserId = asyncHandler(async (req, res, next) => {
     return next(new AppError("Invalid user id", 400));
   }
 
-  const result = await GoalService.getByUserId(userId);
+  const { start_date, end_date } = getValidatedDateRange(req.query || {});
+  const result = await GoalService.getByUserId(userId, { start_date, end_date });
   if (!result) {
     return next(new AppError("No goal found for this user", 404));
   }

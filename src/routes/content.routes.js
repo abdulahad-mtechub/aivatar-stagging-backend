@@ -8,5 +8,7 @@ router.get("/:type", contentController.getContentByType);
 
 // Protected admin route to upsert content
 router.post("/", protect, restrictTo("admin"), contentController.upsertContent);
+router.get("/:type/versions", protect, restrictTo("admin"), contentController.getContentVersionsByType);
+router.patch("/versions/:id/activate", protect, restrictTo("admin"), contentController.activateContentVersion);
 
 module.exports = router;

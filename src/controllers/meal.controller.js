@@ -3,6 +3,7 @@ const UserService = require("../services/user.service");
 const AppError = require("../utils/appError");
 const asyncHandler = require("../utils/asyncHandler");
 const { apiResponse } = require("../utils/apiResponse");
+const { getValidatedDateRange } = require("../utils/dateRange");
 
 function parsePositiveInt(value) {
   const n = Number.parseInt(value, 10);
@@ -67,6 +68,7 @@ async function resolveOwnerIdForCreate(req) {
  */
 exports.getMeals = asyncHandler(async (req, res, next) => {
   const targetUserId = await resolveTargetUserIdForRead(req);
+  const { start_date, end_date } = getValidatedDateRange(req.query || {});
   const result = await MealService.findAll(targetUserId, {
     page: req.query.page,
     limit: req.query.limit,
@@ -74,6 +76,8 @@ exports.getMeals = asyncHandler(async (req, res, next) => {
     sort_by: req.query.sort_by,
     sort_order: req.query.sort_order,
     not_pagination: req.query.not_pagination,
+    start_date,
+    end_date,
   });
   return apiResponse(res, 200, "Meals retrieved successfully", result);
 });

@@ -2,11 +2,13 @@ const BadgeService = require("../services/badge.service");
 const RewardService = require("../services/reward.service");
 const { successResponse, errorResponse } = require("../utils/apiResponse");
 const asyncHandler = require("../utils/asyncHandler");
+const { getValidatedDateRange } = require("../utils/dateRange");
 
 class BadgeController {
   // ─── User Facing ──────────────────────────────────────────────────────────
 
   static getAllBadges = asyncHandler(async (req, res) => {
+    const { start_date, end_date } = getValidatedDateRange(req.query || {});
     const result = await BadgeService.getAllBadges({
       page: req.query.page,
       limit: req.query.limit,
@@ -14,6 +16,8 @@ class BadgeController {
       sort_by: req.query.sort_by,
       sort_order: req.query.sort_order,
       not_pagination: req.query.not_pagination,
+      start_date,
+      end_date,
     });
     return successResponse(res, { message: "Badges fetched", data: result });
   });

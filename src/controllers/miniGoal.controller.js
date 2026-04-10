@@ -1,6 +1,7 @@
 const MiniGoalService = require("../services/miniGoal.service");
 const { successResponse, errorResponse } = require("../utils/apiResponse");
 const asyncHandler = require("../utils/asyncHandler");
+const { getValidatedDateRange } = require("../utils/dateRange");
 
 class MiniGoalController {
   static createGoal = asyncHandler(async (req, res) => {
@@ -48,7 +49,12 @@ class MiniGoalController {
 
   static getGoalsByUserId = asyncHandler(async (req, res) => {
     const { userId } = req.params;
-    const goals = await MiniGoalService.listByUser(userId, { currentDayOnly: false });
+    const { start_date, end_date } = getValidatedDateRange(req.query || {});
+    const goals = await MiniGoalService.listByUser(userId, {
+      currentDayOnly: false,
+      start_date,
+      end_date,
+    });
     return successResponse(res, { message: "User mini goals fetched", data: goals });
   });
 }

@@ -2,6 +2,7 @@ const db = require("../config/database");
 const logger = require("../utils/logger");
 const { validatePaginationParams, generatePagination } = require("../utils/pagination");
 const { parseBoolean, buildPartialSearchClause } = require("../utils/partialSearch");
+const { buildTimestampDateRangeFilter } = require("../utils/dateRange");
 
 class WorkoutService {
   static _toArray(value) {
@@ -454,6 +455,8 @@ class WorkoutService {
       sort_by = "created_at",
       sort_order = "desc",
       not_pagination,
+      start_date,
+      end_date,
     } = options;
     const disablePagination = parseBoolean(not_pagination, false);
     const { page: pageNum, limit: limitNum, offset } = validatePaginationParams(page, limit);
@@ -701,6 +704,16 @@ class WorkoutService {
       if (search.clause) {
         whereParts.push(search.clause);
         whereParams.push(...search.params);
+      }
+      const dateFilter = buildTimestampDateRangeFilter(
+        "w.created_at",
+        start_date,
+        end_date,
+        whereParams.length + 1
+      );
+      if (dateFilter.clauses.length > 0) {
+        whereParts.push(...dateFilter.clauses);
+        whereParams.push(...dateFilter.params);
       }
       const whereSql = whereParts.join(" AND ");
 

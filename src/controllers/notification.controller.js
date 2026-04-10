@@ -3,6 +3,7 @@ const { NOTIFICATION_TEMPLATES } = require("../constants/notification.constants"
 const asyncHandler = require("../utils/asyncHandler");
 const { apiResponse } = require("../utils/apiResponse");
 const AppError = require("../utils/appError");
+const { getValidatedDateRange } = require("../utils/dateRange");
 
 /**
  * GET /api/notifications/templates
@@ -81,7 +82,12 @@ exports.list = asyncHandler(async (req, res) => {
  * Admin route to get list of distinct custom notifications they have sent
  */
 exports.listSentByAdmin = asyncHandler(async (req, res) => {
-  const data = await NotificationService.getSentByAdmin(req.query || {});
+  const { start_date, end_date } = getValidatedDateRange(req.query || {});
+  const data = await NotificationService.getSentByAdmin({
+    ...(req.query || {}),
+    start_date,
+    end_date,
+  });
   return apiResponse(res, 200, "Sent notifications retrieved successfully", data);
 });
 

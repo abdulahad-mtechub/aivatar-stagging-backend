@@ -2,6 +2,7 @@ const db = require("../config/database");
 const logger = require("../utils/logger");
 const { validatePaginationParams, generatePagination } = require("../utils/pagination");
 const { normalizeSearchTerm } = require("../utils/partialSearch");
+const { buildTimestampDateRangeFilter } = require("../utils/dateRange");
 
 /**
  * Contact Service - handles contact query database operations
@@ -40,6 +41,8 @@ class ContactService {
       q,
       sort_by = "created_at",
       sort_order = "desc",
+      start_date,
+      end_date,
     } = options;
     const { page: pageNum, limit: limitNum, offset } = validatePaginationParams(page, limit);
     const searchTerm = normalizeSearchTerm(q);
@@ -60,6 +63,16 @@ class ContactService {
       if (searchTerm) {
         params.push(`%${searchTerm}%`);
         where.push(`(name ILIKE $${params.length} OR email ILIKE $${params.length} OR query ILIKE $${params.length})`);
+      }
+      const dateFilter = buildTimestampDateRangeFilter(
+        "created_at",
+        start_date,
+        end_date,
+        params.length + 1
+      );
+      if (dateFilter.clauses.length > 0) {
+        where.push(...dateFilter.clauses);
+        params.push(...dateFilter.params);
       }
       const whereSql = `WHERE ${where.join(" AND ")}`;
 

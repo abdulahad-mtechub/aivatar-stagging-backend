@@ -3,6 +3,7 @@ const logger = require("../utils/logger");
 const AppError = require("../utils/appError");
 const { validatePaginationParams, generatePagination } = require("../utils/pagination");
 const { parseBoolean, buildPartialSearchClause } = require("../utils/partialSearch");
+const { buildTimestampDateRangeFilter } = require("../utils/dateRange");
 
 function isUniqueTitleViolation(error) {
   return error && error.code === "23505";
@@ -28,6 +29,8 @@ class BadgeService {
       sort_by = "max_points",
       sort_order = "asc",
       not_pagination,
+      start_date,
+      end_date,
     } = options;
     const disablePagination = parseBoolean(not_pagination, false);
     const { page: pageNum, limit: limitNum, offset } = validatePaginationParams(page, limit);
@@ -44,15 +47,28 @@ class BadgeService {
 
     try {
       const search = buildPartialSearchClause(["title", "color", "color_value"], q, 1);
-      const whereSql = search.clause ? `WHERE ${search.clause}` : "";
+      const whereParts = [];
+      const whereParams = [...search.params];
+      if (search.clause) whereParts.push(search.clause);
+      const dateFilter = buildTimestampDateRangeFilter(
+        "created_at",
+        start_date,
+        end_date,
+        whereParams.length + 1
+      );
+      if (dateFilter.clauses.length > 0) {
+        whereParts.push(...dateFilter.clauses);
+        whereParams.push(...dateFilter.params);
+      }
+      const whereSql = whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "";
 
       const countRes = await db.query(
         `SELECT COUNT(*)::int AS total FROM badges ${whereSql}`,
-        search.params
+        whereParams
       );
       const total = countRes.rows[0]?.total || 0;
 
-      const params = [...search.params];
+      const params = [...whereParams];
       let paginationSql = "";
       if (!disablePagination) {
         params.push(limitNum, offset);

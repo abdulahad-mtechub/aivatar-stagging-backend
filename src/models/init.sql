@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS users (
   otp_expires_at TIMESTAMP,
   otp_purpose VARCHAR(32),
   password_reset_verified_at TIMESTAMP,
+  last_login TIMESTAMP,
   fcm_token VARCHAR(255),
   fcm_device_type VARCHAR(50),
   fcm_device_id VARCHAR(255)
@@ -29,6 +30,7 @@ CREATE TABLE IF NOT EXISTS users (
 -- Backward-compatible columns for existing databases (password reset flow: verify-otp then change-password)
 ALTER TABLE users ADD COLUMN IF NOT EXISTS otp_purpose VARCHAR(32);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_verified_at TIMESTAMP;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TIMESTAMP;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS fcm_device_type VARCHAR(50);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS fcm_device_id VARCHAR(255);
 
@@ -36,12 +38,14 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS fcm_device_id VARCHAR(255);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 CREATE INDEX IF NOT EXISTS idx_users_deleted_at ON users(deleted_at);
+CREATE INDEX IF NOT EXISTS idx_users_last_login ON users(last_login DESC);
 
 -- Goals reference table (used by profiles)
 CREATE TABLE IF NOT EXISTS goals (
   id SERIAL PRIMARY KEY,
   title VARCHAR(255) NOT NULL,
   description TEXT,
+  image_url TEXT,
   plan_duration VARCHAR(100),
   goal_weight FLOAT,
   created_at TIMESTAMP DEFAULT NOW(),
@@ -52,6 +56,7 @@ CREATE TABLE IF NOT EXISTS goals (
 -- Backward-compatible columns for existing databases
 ALTER TABLE goals ADD COLUMN IF NOT EXISTS plan_duration VARCHAR(100);
 ALTER TABLE goals ADD COLUMN IF NOT EXISTS goal_weight FLOAT;
+ALTER TABLE goals ADD COLUMN IF NOT EXISTS image_url TEXT;
 
 -- Create indexes for goals table
 CREATE INDEX IF NOT EXISTS idx_goals_deleted_at ON goals(deleted_at);
@@ -126,9 +131,11 @@ ALTER TABLE stripe_subscriptions ADD COLUMN IF NOT EXISTS cancel_requested_at TI
 -- Content Management table (Privacy Policy, Terms & Conditions, etc.)
 CREATE TABLE IF NOT EXISTS contentmanagement (
   id SERIAL PRIMARY KEY,
-  type VARCHAR(50) UNIQUE NOT NULL, -- 'privacy_policy', 'terms_conditions'
+  type VARCHAR(50) NOT NULL, -- 'privacy_policy', 'terms_conditions'
   content TEXT NOT NULL,
   status BOOLEAN DEFAULT true,
+  version INTEGER DEFAULT 1,
+  activated_at TIMESTAMP,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -136,6 +143,20 @@ CREATE TABLE IF NOT EXISTS contentmanagement (
 -- Create indexes for contentmanagement table
 CREATE INDEX IF NOT EXISTS idx_contentmanagement_type ON contentmanagement(type);
 CREATE INDEX IF NOT EXISTS idx_contentmanagement_status ON contentmanagement(status);
+CREATE INDEX IF NOT EXISTS idx_contentmanagement_type_version ON contentmanagement(type, version DESC);
+
+-- Backward-compatible content versioning migration
+ALTER TABLE contentmanagement ADD COLUMN IF NOT EXISTS version INTEGER;
+ALTER TABLE contentmanagement ADD COLUMN IF NOT EXISTS activated_at TIMESTAMP;
+ALTER TABLE contentmanagement ALTER COLUMN version SET DEFAULT 1;
+UPDATE contentmanagement SET version = 1 WHERE version IS NULL;
+ALTER TABLE contentmanagement ALTER COLUMN version SET NOT NULL;
+ALTER TABLE contentmanagement DROP CONSTRAINT IF EXISTS contentmanagement_type_key;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_contentmanagement_type_version
+  ON contentmanagement(type, version);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_contentmanagement_active_type
+  ON contentmanagement(type)
+  WHERE status = true;
 
 
 -- ==========================================

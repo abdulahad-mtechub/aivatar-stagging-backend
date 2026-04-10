@@ -1,6 +1,7 @@
 const DemoVideoService = require("../services/demoVideo.service");
 const { successResponse, errorResponse } = require("../utils/apiResponse");
 const asyncHandler = require("../utils/asyncHandler");
+const { getValidatedDateRange } = require("../utils/dateRange");
 
 function parseId(param) {
   const id = Number.parseInt(param, 10);
@@ -37,6 +38,7 @@ class DemoVideoController {
 
   static listAllAdmin = asyncHandler(async (req, res) => {
     if (!assertAdminRequest(req, res)) return;
+    const { start_date, end_date } = getValidatedDateRange(req.query || {});
     const result = await DemoVideoService.listAllForAdmin({
       page: req.query.page,
       limit: req.query.limit,
@@ -44,6 +46,8 @@ class DemoVideoController {
       sort_by: req.query.sort_by,
       sort_order: req.query.sort_order,
       not_pagination: req.query.not_pagination,
+      start_date,
+      end_date,
     });
     return successResponse(res, { message: "Demo videos fetched", data: result });
   });

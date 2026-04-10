@@ -2,6 +2,7 @@ const db = require("../config/database");
 const logger = require("../utils/logger");
 const { validatePaginationParams, generatePagination } = require("../utils/pagination");
 const { parseBoolean, buildPartialSearchClause } = require("../utils/partialSearch");
+const { buildTimestampDateRangeFilter } = require("../utils/dateRange");
 
 /**
  * User Service - handles user-related database operations
@@ -114,7 +115,7 @@ class UserService {
   }
 
   static async getUsersWithProfiles(whereSql, whereParams, options = {}) {
-    const { page = 1, limit = 10, q, not_pagination } = options;
+    const { page = 1, limit = 10, q, not_pagination, start_date, end_date } = options;
     const disablePagination = parseBoolean(not_pagination, false);
     const { page: pageNum, limit: limitNum, offset } = validatePaginationParams(page, limit);
 
@@ -129,6 +130,16 @@ class UserService {
     if (search.clause) {
       whereParts.push(search.clause);
       paramsBase.push(...search.params);
+    }
+    const dateFilter = buildTimestampDateRangeFilter(
+      "u.created_at",
+      start_date,
+      end_date,
+      paramsBase.length + 1
+    );
+    if (dateFilter.clauses.length > 0) {
+      whereParts.push(...dateFilter.clauses);
+      paramsBase.push(...dateFilter.params);
     }
     const finalWhereSql = whereParts.join(" AND ");
 
@@ -591,6 +602,97 @@ class UserService {
   }
 
   /**
+   * Permanently delete a user (hard delete).
+   * Cascading behavior depends on FK rules in schema.
+   * @param {number} id - User ID
+   * @returns {Promise<boolean>} true if a row was deleted
+   */
+  static async hardDelete(id) {
+    try {
+      const result = await db.query(
+        "DELETE FROM users WHERE id = $1 RETURNING id",
+        [id]
+      );
+      return !!result.rows[0];
+    } catch (error) {
+      logger.error(`Error hard deleting user: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Admin: update or create a user's profile by user id.
+   * @param {number} userId
+   * @param {object} updateData
+   * @returns {Promise<object|null>}
+   */
+  static async upsertUserProfileByUserId(userId, updateData = {}) {
+    const allowedFields = [
+      "profile_image",
+      "address",
+      "reminder",
+      "plan_key",
+      "goal_id",
+      "mentor_gender",
+      "gender",
+      "qa_list",
+      "job_type",
+      "target_weight",
+      "target_calories",
+      "target_protein",
+      "target_carbs",
+      "target_fats",
+    ];
+
+    const filteredKeys = Object.keys(updateData).filter(
+      (key) => allowedFields.includes(key) && updateData[key] !== undefined
+    );
+
+    if (filteredKeys.length === 0) return null;
+
+    const existing = await db.query(
+      "SELECT id FROM profiles WHERE user_id = $1 AND deleted_at IS NULL LIMIT 1",
+      [userId]
+    );
+
+    const normalizedData = { ...updateData };
+    if (normalizedData.qa_list !== undefined && typeof normalizedData.qa_list !== "string") {
+      normalizedData.qa_list = JSON.stringify(normalizedData.qa_list);
+    }
+
+    try {
+      if (existing.rows[0]) {
+        const profileId = existing.rows[0].id;
+        const setClauses = filteredKeys.map((key, idx) => `${key} = $${idx + 2}`);
+        setClauses.push("updated_at = NOW()");
+        const values = [profileId, ...filteredKeys.map((key) => normalizedData[key])];
+        const result = await db.query(
+          `UPDATE profiles
+           SET ${setClauses.join(", ")}
+           WHERE id = $1 AND deleted_at IS NULL
+           RETURNING *`,
+          values
+        );
+        return result.rows[0] || null;
+      }
+
+      const insertColumns = ["user_id", ...filteredKeys];
+      const placeholders = insertColumns.map((_, idx) => `$${idx + 1}`);
+      const values = [userId, ...filteredKeys.map((key) => normalizedData[key])];
+      const result = await db.query(
+        `INSERT INTO profiles (${insertColumns.join(", ")})
+         VALUES (${placeholders.join(", ")})
+         RETURNING *`,
+        values
+      );
+      return result.rows[0] || null;
+    } catch (error) {
+      logger.error(`Error upserting user profile by user id: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
    * Get all users with pagination
    * @param {object} options - Pagination options
    * @returns {Promise<object>} Users and pagination info
@@ -634,12 +736,65 @@ class UserService {
 
   static async findAllWithProfiles(options = {}) {
     // Non-deleted users (mixed active/inactive by default), role=user only.
-    const { status } = options;
+    const { status, subscription } = options;
     const normalized = status ? String(status).toLowerCase() : "mixed";
+    const normalizedSubscription = subscription
+      ? String(subscription).toLowerCase()
+      : "mixed";
+
+    if (
+      normalizedSubscription !== "mixed" &&
+      normalizedSubscription !== "subscribed" &&
+      normalizedSubscription !== "not_subscribed"
+    ) {
+      throw new Error("subscription must be subscribed, not_subscribed, or mixed");
+    }
+
+    const subscribedSql = `
+      (
+        EXISTS (
+          SELECT 1
+          FROM profiles p2
+          WHERE p2.user_id = u.id
+            AND p2.deleted_at IS NULL
+            AND p2.plan_key IS NOT NULL
+            AND LENGTH(TRIM(p2.plan_key)) > 0
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM stripe_transactions st
+          WHERE st.user_id = u.id
+        )
+      )
+    `;
+    const notSubscribedSql = `
+      (
+        NOT EXISTS (
+          SELECT 1
+          FROM profiles p2
+          WHERE p2.user_id = u.id
+            AND p2.deleted_at IS NULL
+            AND p2.plan_key IS NOT NULL
+            AND LENGTH(TRIM(p2.plan_key)) > 0
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM stripe_transactions st
+          WHERE st.user_id = u.id
+        )
+      )
+    `;
+
+    const subscriptionWhereSql =
+      normalizedSubscription === "subscribed"
+        ? ` AND ${subscribedSql}`
+        : normalizedSubscription === "not_subscribed"
+        ? ` AND ${notSubscribedSql}`
+        : "";
 
     if (normalized === "mixed") {
       return await this.getUsersWithProfiles(
-        "u.deleted_at IS NULL AND u.role = $1",
+        `u.deleted_at IS NULL AND u.role = $1${subscriptionWhereSql}`,
         ["user"],
         options
       );
@@ -651,7 +806,7 @@ class UserService {
 
     const isBlocked = normalized === "inactive";
     return await this.getUsersWithProfiles(
-      "u.deleted_at IS NULL AND u.role = $1 AND u.block_status = $2",
+      `u.deleted_at IS NULL AND u.role = $1 AND u.block_status = $2${subscriptionWhereSql}`,
       ["user", isBlocked],
       options
     );
